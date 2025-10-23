@@ -21,14 +21,13 @@ y_data = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
 ax.set_ylim(0, 1023)
-
+y_data_list = []
+y_data_arr = np.array()
 
 def update_plot():
     line.set_xdata(np.arange(len(x_data)))  # X-axis
     line.set_ydata(np.array(y_data))  # Y-axis
     plt.draw()
-
-
 # Real-time plotting
 readings = 0
 
@@ -37,10 +36,15 @@ while True:
         try:
             data = ser.readline().decode('utf-8').strip().split(',')[0]  # Read and decode data from serial
             value = int(data)
-            if y_data:
-                value = value * a + (1 - a) * y_data[-1]
+            # if y_data:
+            #     value = value * a + (1 - a) * y_data[-1]
             x_data.append(len(x_data))
             y_data.append(value)
+            y_data_list.append(value)
+            if keyboard.is_pressed(' '):
+                 current_idx = len(y_data_list) - 1
+                 y_data_arr.append(y_data_list[:current_idx])
+                 y_data_list = []
             readings += 1
             if readings > update_batch_size:
                 update_plot()
@@ -51,7 +55,10 @@ while True:
         except UnicodeDecodeError:
             pass
     if keyboard.is_pressed('q'):
+            for prev_readings in y_data_arr:
+                 print(len(prev_readings))
             break
+            
 
 ser.close()
 plt.ioff()  # Turn off interactive mode
