@@ -9,6 +9,7 @@ import subprocess
 import json
 import os
 from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegressor, RANSACRegressor
+import time
 
 # Set up the serial port and parameters
 serial_port = 'COM5'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
@@ -32,7 +33,8 @@ y_data_arr = []
 press=False
 
 #Feature Extraction Setup
-
+global c 
+c=0  
 def feature_extraction(signal):
     signal = np.array(signal)
     max_val = np.max(signal)
@@ -41,16 +43,18 @@ def feature_extraction(signal):
     return deltaV
 
 def process_data(y_data_arr, points):
+    global c
     deltaV_list = []
     x_points = []
     y_points = []
     for i, signal in enumerate(y_data_arr):
         deltaV = feature_extraction(signal)
-        print(f"Signal {i+1}: ΔV = {deltaV}")
+        #print(c)
         deltaV_list.append(deltaV)
     for coord in points:
         x_points.append(coord[0])
         y_points.append(coord[1])
+    c+=1 
 
     return deltaV_list, y_points
 
@@ -59,7 +63,7 @@ def train_linear_reg(dV, coords):
     model.fit(dV, coords)
 
     
-
+calibrated = False
 calibrating = False 
 p = None
 
@@ -86,7 +90,8 @@ while True:
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
                 calibrating = True
-
+                calibrated = True
+            #print(calibrating)
             if calibrating: # while the game is being run...
                 if keyboard.is_pressed(" "): # collect calibration data
                     if (not press):
@@ -103,12 +108,16 @@ while True:
                 if p.poll() is not None: # when calibration is over
                     with open("calibration_points.json") as f: # load the list of random points generated in calibration_game
                         points = json.load(f)
+                    """""
                     deltaV, y = process_data(y_data_arr, points) # feature extraction + linear regression fitting
                     train_linear_reg(deltaV, y)
+                    time.sleep(0.5)
+                    """
                     calibrating = False # stop the loop 
+                    print(calibrating)
             #End Calibration phase
             readings += 1
-            if readings > update_batch_size:
+            if (readings > update_batch_size) and (not calibrating):
                 update_plot()
                 #Call Model.predict here
                 readings = 0
