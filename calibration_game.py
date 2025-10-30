@@ -82,9 +82,14 @@ def draw_random_oval(event):
             print(f"Maximum of {n} circles reached!")
             print(points)
             root.destroy()
+
+def close_window(event):
+    root.destroy()
+
 #Binds spacebar
 root.bind('<space>', draw_random_oval)
-
+root.bind('q',close_window)
+root.protocol("WM_DELETE_WINDOW", close_window)
 #TO use events
 root.focus_set()
 
