@@ -1,5 +1,8 @@
 import tkinter as tk
 import random 
+import json
+import os
+ 
 
 root = tk.Tk()
 root.attributes('-fullscreen', True)
@@ -12,6 +15,11 @@ canvas.pack(fill='both', expand=True)
 
 root.update()
 
+# Make sure Tk actually captures keyboard events
+root.focus_force()
+root.lift()
+root.after(100, lambda: root.focus_force())
+
 #Coordinates 
 x = 0
 y = 0
@@ -21,7 +29,10 @@ r = 10  #Radius, change if needed
 n = 50
 circle_count = 0
 points=[]
-def on_spacebar(event):
+#Draw Initial Center circle so that user knows where to start
+canvas.create_oval((width/2 - r), (height/2 - r), (width/2 + r), (height/2 + r), fill='blue', outline='black')
+
+def draw_random_oval(event):
     global circle_count
     if circle_count < n:
         canvas.delete("all")  #Delete
@@ -33,23 +44,35 @@ def on_spacebar(event):
             px=points[circle_count-1][0] #Previous
             py=points[circle_count-1][1]
             canvas.create_oval(px - r, py - r, px + r, py + r,
-                   outline='black',
-                   width=2,
-                   fill='',
-                   dash=(5, 5))
+                outline='black',
+                width=2,
+                fill='',
+                dash=(5, 5))
         except:
             pass
         canvas.create_oval(rx - r, ry - r, rx + r, ry + r, fill='blue', outline='black')
-        try:
-            canvas.create_line(rx, ry, px, py, arrow=tk.FIRST, width=2, fill='red')
-        except:
-            pass
+        if circle_count == 0: 
+            try:
+                canvas.create_oval((width/2) - r, (height/2) - r, (width/2)  + r, (height/2) + r,
+                outline='black',
+                width=2,
+                fill='',
+                dash=(5, 5))
+                canvas.create_line(rx, ry, (width/2), (height/2), arrow=tk.FIRST, width=2, fill='red')
+            except:
+                pass
+        else: 
+            try:
+                canvas.create_line(rx, ry, px, py, arrow=tk.FIRST, width=2, fill='red')
+            except:
+                pass
         circle_count += 1
         if circle_count >= n:
             print(f"Maximum of {n} circles reached!")
-
+            print(points)
+            root.destroy()
 #Binds spacebar
-root.bind('<space>', on_spacebar)
+root.bind('<space>', draw_random_oval)
 
 #TO use events
 root.focus_set()
@@ -57,4 +80,8 @@ root.focus_set()
 #Escape fullscreen
 root.bind('<Escape>', lambda e: root.attributes('-fullscreen', False))
 
+
 root.mainloop()
+
+with open("calibration_points.json", "w") as f:
+    json.dump(points, f)
