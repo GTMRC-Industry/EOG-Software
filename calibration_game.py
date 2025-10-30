@@ -29,8 +29,17 @@ r = 10  #Radius, change if needed
 n = 50
 circle_count = 0
 points=[]
+
 #Draw Initial Center circle so that user knows where to start
 canvas.create_oval((width/2 - r), (height/2 - r), (width/2 + r), (height/2 + r), fill='blue', outline='black')
+
+points_converted=[]
+#Function to translate coordinates
+def convert(x,y,w=width,h=height):
+    #(width/2,height/2) is center!
+    x1=x-w/2
+    y1=-(y-h/2)
+    return (x1,y1)
 
 def draw_random_oval(event):
     global circle_count
@@ -38,7 +47,9 @@ def draw_random_oval(event):
         canvas.delete("all")  #Delete
         rx = random.randint(x + r, width - r)
         ry = random.randint(y + r, height - r)
+        coordinates_conv=convert(rx,ry)
         points.append((rx,ry))
+        points_converted.append(coordinates_conv)
         #Immeadiate previous one on disc lines
         try:
             px=points[circle_count-1][0] #Previous
@@ -84,4 +95,4 @@ root.bind('<Escape>', lambda e: root.attributes('-fullscreen', False))
 root.mainloop()
 
 with open("calibration_points.json", "w") as f:
-    json.dump(points, f)
+    json.dump(points_converted, f)
