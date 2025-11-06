@@ -34,35 +34,59 @@ press=False
 
 #Feature Extraction Setup
 global c 
-c=0  
-def feature_extraction(signal):
-    signal = np.array(signal)
-    max_val = np.max(signal)
-    min_val = np.min(signal)
-    deltaV = max_val - min_val
-    return deltaV
+c=0
 
-def process_data(y_data_arr, points):
-    global c
-    deltaV_list = []
-    x_points = []
-    y_points = []
-    for i, signal in enumerate(y_data_arr):
-        deltaV = feature_extraction(signal)
-        #print(c)
-        deltaV_list.append(deltaV)
-    for coord in points:
-        x_points.append(coord[0])
-        y_points.append(coord[1])
-    c+=1 
 
-    return deltaV_list, y_points
-
-def train_linear_reg(dV, coords):
-    model = LinearRegression()
-    model.fit(dV, coords)
-
+def get_deltas(y_data_arr, points):
     
+    # Get the y coordinates of the calibration points
+    y_points = np.array([])
+    for point in points: 
+        y_points = np.append(y_points, point[1])
+
+    deltaEOG_v = np.array([])
+
+    # Sliding window
+    window_size = 10
+    for entry in y_data_arr:
+        
+        i = 0
+        window_deltas_y = []
+        
+        for i in range(len(entry) - window_size):
+            i_max_y, i_min_y = np.argmax(entry), np.argmin(entry)
+            if i_max_y > i_min_y:
+                # signal went down first, then up → positive saccade
+                window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
+            else:
+                # signal went up first, then down → negative saccade
+                window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
+
+        deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
+
+        #Apply first differences to y_points
+        deltaY = np.diff(y_points) 
+    return deltaEOG_v, deltaY
+
+
+def filter_data(deltaEOG_v, deltaY):
+    model_v = RANSACRegressor(residual_threshold=5.0)
+    model_v.fit(deltaEOG_v.reshape(-1, 1), deltaY)
+    inlier_mask = model_v.inlier_mask_
+    deltaEOG_v = deltaEOG_v[inlier_mask]
+    deltaY = deltaY[inlier_mask]
+
+    return deltaEOG_v, deltaY
+
+def train_model(deltaEOG_v, deltaY):
+    model = LinearRegression()
+    model.fit(deltaEOG_v.reshape(-1, 1), deltaY)
+    # Save the trained model coefficients for later use
+    with open("linear_model_coefficients.json", "w") as f:
+        json.dump({"slope": model.coef_[0], "intercept": model.intercept_}, f)
+    print("Model trained and coefficients saved.")
+
+
 calibrated = False
 calibrating = False 
 p = None
@@ -113,7 +137,13 @@ while True:
                     train_linear_reg(deltaV, y)
                     time.sleep(0.5)
                     """
-                    calibrating = False # stop the loop 
+                    print('Calibration Complete. Training Model...')
+                    #TEST THESE FUNCITONS TODAY
+                    deltaEOG_v, deltaY = get_deltas(y_data_arr, points)
+                    deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
+                    train_model(deltaEOG_v, deltaY)
+
+                    calibrating = False # stop the loop
                     print(calibrating)
             #End Calibration phase
             readings += 1
