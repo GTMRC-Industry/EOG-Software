@@ -1,3 +1,4 @@
+import sys
 import serial
 import matplotlib.pyplot as plt
 import numpy as np
@@ -70,13 +71,21 @@ def get_deltas(y_data_arr, points):
 
 
 def filter_data(deltaEOG_v, deltaY):
-    model_v = RANSACRegressor(residual_threshold=5.0)
-    model_v.fit(deltaEOG_v.reshape(-1, 1), deltaY)
-    inlier_mask = model_v.inlier_mask_
-    deltaEOG_v = deltaEOG_v[inlier_mask]
-    deltaY = deltaY[inlier_mask]
+    if len(deltaEOG_v)==len(deltaY):
+        model_v = RANSACRegressor(residual_threshold=5.0)
+        print("Before fitting")
+        model_v.fit(deltaEOG_v.reshape(-1, 1), deltaY)
+        
+        print("After fitting")
+        inlier_mask = model_v.inlier_mask_
+        deltaEOG_v = deltaEOG_v[inlier_mask]
+        deltaY = deltaY[inlier_mask]
 
-    return deltaEOG_v, deltaY
+        return deltaEOG_v, deltaY
+    else:
+        print("deltaEOG_v len:", len(deltaEOG_v), "std:", np.std(deltaEOG_v))
+        print("deltaY len:", len(deltaY), "std:", np.std(deltaY))
+        sys.stdout.flush()
 
 def train_model(deltaEOG_v, deltaY):
     model = LinearRegression()
@@ -132,15 +141,12 @@ while True:
                 if p.poll() is not None: # when calibration is over
                     with open("calibration_points.json") as f: # load the list of random points generated in calibration_game
                         points = json.load(f)
-                    """""
-                    deltaV, y = process_data(y_data_arr, points) # feature extraction + linear regression fitting
-                    train_linear_reg(deltaV, y)
-                    time.sleep(0.5)
-                    """
                     print('Calibration Complete. Training Model...')
                     #TEST THESE FUNCITONS TODAY
                     deltaEOG_v, deltaY = get_deltas(y_data_arr, points)
+                    print("Getting deltas")
                     deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
+                    print("Filtering data")
                     train_model(deltaEOG_v, deltaY)
 
                     calibrating = False # stop the loop

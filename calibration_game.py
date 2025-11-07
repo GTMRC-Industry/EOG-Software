@@ -26,7 +26,7 @@ y = 0
 height = root.winfo_height()
 width = root.winfo_width()
 r = 10  #Radius, change if needed
-n = 50
+n = 10
 circle_count = 0
 points=[]
 
@@ -34,6 +34,7 @@ points=[]
 canvas.create_oval((width/2 - r), (height/2 - r), (width/2 + r), (height/2 + r), fill='blue', outline='black')
 
 points_converted=[]
+points_converted.append((0,0))
 #Function to translate coordinates
 def convert(x,y,w=width,h=height):
     #(width/2,height/2) is center!
