@@ -36,17 +36,17 @@ press=False
 #Feature Extraction Setup
 global c 
 c=0
-
-
-def get_deltas(y_data_arr, points):
-    
-    # Get the y coordinates of the calibration points
+def get_deltaY(points):
     y_points = np.array([])
     for point in points: 
         y_points = np.append(y_points, point[1])
 
-    deltaEOG_v = np.array([])
+    #Apply first differences to y_points
+    deltaY = np.diff(y_points)
+    return deltaY
 
+def get_deltaEOG(y_data_arr):
+    deltaEOG_v = np.array([])
     # Sliding window
     window_size = 10
     for entry in y_data_arr:
@@ -65,10 +65,7 @@ def get_deltas(y_data_arr, points):
 
         deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
 
-        #Apply first differences to y_points
-        deltaY = np.diff(y_points) 
-    return deltaEOG_v, deltaY
-
+    return deltaEOG_v
 
 def filter_data(deltaEOG_v, deltaY):
     if len(deltaEOG_v)==len(deltaY):
@@ -86,8 +83,11 @@ def filter_data(deltaEOG_v, deltaY):
         print("deltaEOG_v len:", len(deltaEOG_v), "std:", np.std(deltaEOG_v))
         print("deltaY len:", len(deltaY), "std:", np.std(deltaY))
         sys.stdout.flush()
+    
+
 
 def train_model(deltaEOG_v, deltaY):
+    global model
     model = LinearRegression()
     model.fit(deltaEOG_v.reshape(-1, 1), deltaY)
     # Save the trained model coefficients for later use
@@ -143,8 +143,7 @@ while True:
                         points = json.load(f)
                     print('Calibration Complete. Training Model...')
                     #TEST THESE FUNCITONS TODAY
-                    deltaEOG_v, deltaY = get_deltas(y_data_arr, points)
-                    print("Getting deltas")
+                    deltaEOG_v, deltaY = get_deltaEOG(y_data_arr), get_deltaY(points)
                     deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
                     print("Filtering data")
                     train_model(deltaEOG_v, deltaY)
@@ -156,6 +155,9 @@ while True:
             if (readings > update_batch_size) and (not calibrating):
                 update_plot()
                 #Call Model.predict here
+                deltaEOG_v = get_deltaEOG(y_data)
+                y_pred = model.predict(deltaEOG_v)
+                print(y_pred)
                 readings = 0
                 plt.pause(0.01)
         except ValueError:
@@ -168,11 +170,6 @@ while True:
                  print(len(prev_readings))
             break
     
-
-
-
-
-
 ser.close()
 plt.ioff()  # Turn off interactive mode
 plt.show()  # Keep the plot open after program finishes
