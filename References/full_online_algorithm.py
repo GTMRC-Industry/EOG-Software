@@ -45,7 +45,7 @@ def get_deltaY(points):
     deltaY = np.diff(y_points)
     return deltaY
 
-def get_deltaEOG(y_data_arr):
+def get_deltaEOG_train(y_data_arr):
     deltaEOG_v = np.array([])
     # Sliding window
     window_size = 10
@@ -64,6 +64,26 @@ def get_deltaEOG(y_data_arr):
                 window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
 
         deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
+
+    return deltaEOG_v
+
+def get_deltaEOG_predict(y_data):
+    deltaEOG_v = np.array([])
+    # Sliding window
+    window_size = 10 
+    i = 0
+    window_deltas_y = []
+    entry=list(y_data)
+    for i in range(len(entry) - window_size):
+        i_max_y, i_min_y = np.argmax(entry), np.argmin(entry)
+        if i_max_y > i_min_y:
+            # signal went down first, then up → positive saccade
+            window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
+        else:
+            # signal went up first, then down → negative saccade
+            window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
+
+    deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
 
     return deltaEOG_v
 
@@ -87,13 +107,13 @@ def filter_data(deltaEOG_v, deltaY):
 
 
 def train_model(deltaEOG_v, deltaY):
-    global model
     model = LinearRegression()
     model.fit(deltaEOG_v.reshape(-1, 1), deltaY)
     # Save the trained model coefficients for later use
     with open("linear_model_coefficients.json", "w") as f:
         json.dump({"slope": model.coef_[0], "intercept": model.intercept_}, f)
     print("Model trained and coefficients saved.")
+    return model
 
 
 calibrated = False
@@ -123,8 +143,6 @@ while True:
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
                 calibrating = True
-                calibrated = True
-            #print(calibrating)
             if calibrating: # while the game is being run...
                 if keyboard.is_pressed(" "): # collect calibration data
                     if (not press):
@@ -143,23 +161,29 @@ while True:
                         points = json.load(f)
                     print('Calibration Complete. Training Model...')
                     #TEST THESE FUNCITONS TODAY
-                    deltaEOG_v, deltaY = get_deltaEOG(y_data_arr), get_deltaY(points)
+                    deltaEOG_v, deltaY = get_deltaEOG_train(y_data_arr), get_deltaY(points)
                     deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
                     print("Filtering data")
-                    train_model(deltaEOG_v, deltaY)
+                    model=train_model(deltaEOG_v, deltaY)
 
                     calibrating = False # stop the loop
+                    calibrated = True
                     print(calibrating)
             #End Calibration phase
             readings += 1
             if (readings > update_batch_size) and (not calibrating):
                 update_plot()
                 #Call Model.predict here
-                deltaEOG_v = get_deltaEOG(y_data)
-                y_pred = model.predict(deltaEOG_v)
-                print(y_pred)
+                if calibrated:
+                    deltaEOG_v = get_deltaEOG_predict(y_data)
+                    y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
+                    print(y_pred)
+                #deltaEOG_v = get_deltaEOG_predict(y_data)
+                #y_pred = model.predict(deltaEOG_v)
+                #print(y_pred)
                 readings = 0
                 plt.pause(0.01)
+            
         except ValueError:
             pass
         except UnicodeDecodeError:
