@@ -170,17 +170,19 @@ while True:
                     calibrated = True
                     print(calibrating)
             #End Calibration phase
+
             readings += 1
+
+            #consider using separate batch sizes to deal with plot lag
             if (readings > update_batch_size) and (not calibrating):
                 update_plot()
                 #Call Model.predict here
-                if calibrated:
+
+                if calibrated: # if calibration finished
                     deltaEOG_v = get_deltaEOG_predict(y_data)
                     y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
                     print(y_pred)
-                #deltaEOG_v = get_deltaEOG_predict(y_data)
-                #y_pred = model.predict(deltaEOG_v)
-                #print(y_pred)
+
                 readings = 0
                 plt.pause(0.01)
             
