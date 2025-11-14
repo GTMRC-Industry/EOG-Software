@@ -2,7 +2,9 @@ import sys
 import serial
 import matplotlib.pyplot as plt
 import numpy as np
-import keyboard
+from pynput import keyboard
+from pynput.keyboard import Key, Controller
+
 from collections import deque
 import tkinter as tk
 import random
@@ -13,7 +15,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegr
 import time
 
 # Set up the serial port and parameters
-serial_port = 'COM5'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem101'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
@@ -38,6 +40,47 @@ blink_data_arr = []
 #Feature Extraction Setup
 global c 
 c=0
+global open_blink_calibration
+global record_blink
+global open_eye_mvmt_calibration
+global record_eye_mvmt
+global close_program
+
+open_blink_calibration = False
+record_blink = False
+open_eye_mvmt_calibration = False
+record_eye_mvmt = False
+close_program = False
+print("BEFORE LISTENER")
+def on_press(key):
+    try:
+        global open_blink_calibration
+        global record_blink
+        global open_eye_mvmt_calibration
+        global record_eye_mvmt
+        global close_program
+        open_blink_calibration = False
+        record_blink = False
+        open_eye_mvmt_calibration = False
+        record_eye_mvmt = False
+        close_program = False
+        if key.char == 'k':
+            open_blink_calibration = True
+        elif key.char == 'b':
+            record_blink = True
+            print('pressed b')
+        elif key.char == 'c':
+            open_eye_mvmt_calibration = True
+        elif key.char == 'd':
+            print('pressed d')
+            record_eye_mvmt = True
+        elif key.char == 'q':
+            close_program = True
+    except AttributeError:
+        # handle special keys (e.g. space, enter)
+        pass
+listener = keyboard.Listener(on_press=on_press)
+listener.start()
 
 # EXTRACT FEATURES FOR TRAINING REGRESSION ------------------------
 
@@ -187,15 +230,15 @@ while True:
 
             # Blink Calibration phase
 
-            if keyboard.is_pressed('k') and not blink_calibrating: # press k to open the blink game
+            if open_blink_calibration and not blink_calibrating: # press k to open the blink game
                 print('Opening Blink Game')
                 n = subprocess.Popen(["python3", "blink_game.py"])
                 blink_calibrating = True
             if blink_calibrating:
-                if keyboard.is_pressed("b"):
+                if record_blink:
                     if (not blink_press):
                         blink_press = True
-                        keyboard.release('b')
+                        record_blink = False
                         blink_current_idx = len(blink_data_list) - 1
                         print('Captured Blink')
 
@@ -214,15 +257,15 @@ while True:
 
             
             # Eye Movement Calibration phase
-            if keyboard.is_pressed('c') and not calibrating: # press c to open the calibration game
+            if open_eye_mvmt_calibration and not calibrating: # press c to open the calibration game
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
                 calibrating = True
             if calibrating: # while the game is being run...
-                if keyboard.is_pressed(" "): # collect calibration data
+                if record_eye_mvmt: # collect calibration data
                     if (not press):
                         press=True
-                        keyboard.release(" ")
+                        record_eye_mvmt = False
                         current_idx = len(y_data_list) - 1
                         print('Captured Eye Movement')
                         # print(y_data_list)
@@ -255,7 +298,7 @@ while True:
 
                 if calibrated and blink_calibrated: # if calibration finished
                     deltaEOG_v = get_deltaEOG_test(y_data)
-                    classification = classify(deltaEOG_v)
+                    classification = classify(deltaEOG_v, deltaEOG_blink_lowest)
                     if not classification:
                         y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
                         print(y_pred)
@@ -270,7 +313,7 @@ while True:
             pass
         except UnicodeDecodeError:
             pass
-    if keyboard.is_pressed('q'):
+    if close_program:
             #print(len(y_data_arr))
             for prev_readings in y_data_arr:
                  print(len(prev_readings))

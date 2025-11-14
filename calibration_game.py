@@ -88,7 +88,7 @@ def close_window(event):
     root.destroy()
 
 #Binds spacebar
-root.bind('<space>', draw_random_oval)
+root.bind('d', draw_random_oval)
 root.bind('q',close_window)
 root.protocol("WM_DELETE_WINDOW", close_window)
 #TO use events

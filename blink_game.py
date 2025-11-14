@@ -39,6 +39,7 @@ def close_window(event):
 # Bind key press event
 root.bind("<KeyPress>", on_key_press)
 root.bind('q',close_window)
+root.bind('<Escape>', lambda e: root.attributes('-fullscreen', False))
 root.protocol("WM_DELETE_WINDOW", close_window)
 
 root.mainloop()
