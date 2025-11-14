@@ -24,12 +24,16 @@ def count_down():
 root = tk.Tk()
 root.title("Countdown on Canvas")
 root.attributes('-fullscreen', True)
+root.attributes('-topmost', True)
+root.update()
 height = root.winfo_height()
 width = root.winfo_width()
 # Create canvas
-canvas = tk.Canvas(root, width=width, height=height, bg="black")
-canvas.pack()
 
+canvas = tk.Canvas(root, bg="black")
+canvas.pack(fill="both",expand=True)
+height = root.winfo_height()
+width = root.winfo_width()
 # Add text to canvas
 text_item = canvas.create_text((width / 2), (height / 2), text=str(count), fill="white", font=("Helvetica", 48))
 
@@ -40,5 +44,5 @@ def close_window(event):
 root.bind("<KeyPress>", on_key_press)
 root.bind('q',close_window)
 root.protocol("WM_DELETE_WINDOW", close_window)
-
+canvas.pack(fill='both', expand=True)
 root.mainloop()

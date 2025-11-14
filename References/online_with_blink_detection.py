@@ -22,6 +22,7 @@ a = 0.5 # Exponential Smoothing Parameter
 baseline = 1023 / 2
 
 # Plot Setup
+
 plt.ion()
 fig, ax = plt.subplots()
 x_data = deque(maxlen=history)
@@ -29,6 +30,7 @@ y_data = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
 ax.set_ylim(0, 1023)
+
 y_data_list = []
 y_data_arr = []
 blink_data_list = []
@@ -75,7 +77,7 @@ def get_deltaEOG_train(y_data_arr):
 
 def filter_data(deltaEOG_v, deltaY):
     if len(deltaEOG_v)==len(deltaY):
-        model_v = RANSACRegressor(residual_threshold=5.0)
+        model_v = RANSACRegressor(residual_threshold=5.0, max_trials=200,min_samples=0.2)
         print("Before fitting")
         model_v.fit(deltaEOG_v.reshape(-1, 1), deltaY)
         
@@ -255,7 +257,7 @@ while True:
 
                 if calibrated and blink_calibrated: # if calibration finished
                     deltaEOG_v = get_deltaEOG_test(y_data)
-                    classification = classify(deltaEOG_v)
+                    classification = classify(deltaEOG_v,deltaEOG_blink_lowest)
                     if not classification:
                         y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
                         print(y_pred)
