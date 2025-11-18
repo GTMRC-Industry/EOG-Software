@@ -15,11 +15,11 @@ from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegr
 import time
 
 # Set up the serial port and parameters
-serial_port = '/dev/cu.usbmodem101'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem1101'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
-update_batch_size = 10
+update_batch_size = 20
 a = 0.5 # Exponential Smoothing Parameter
 baseline = 1023 / 2
 
@@ -28,9 +28,10 @@ plt.ion()
 fig, ax = plt.subplots()
 x_data = deque(maxlen=history)
 y_data = deque(maxlen=history)
+y_pred_deque = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
-ax.set_ylim(0, 1023)
+ax.set_ylim(-200, 200)
 y_data_list = []
 y_data_arr = []
 blink_data_list = []
@@ -96,7 +97,7 @@ def get_deltaY(points):
 def get_deltaEOG_train(y_data_arr):
     deltaEOG_v = np.array([])
     # Sliding window
-    window_size = 10
+    window_size = 150
     for entry in y_data_arr:
         
         i = 0
@@ -148,7 +149,7 @@ def train_model(deltaEOG_v, deltaY):
 def set_blink_threshold(blink_data):
     deltaEOG_blinks = np.array([])
     # use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
-    window_size = 25
+    window_size = 100
     for entry in blink_data:
         
         i = 0
@@ -181,7 +182,7 @@ def classify(deltaEOG_v, deltaEOG_blink_lowest):
 def get_deltaEOG_test(y_data):
     deltaEOG_v = np.array([])
     # Sliding window
-    window_size = 10 
+    window_size = 150 
     i = 0
     window_deltas_y = []
     entry=list(y_data)
@@ -214,6 +215,11 @@ def update_plot():
     line.set_xdata(np.arange(len(x_data)))  # X-axis
     line.set_ydata(np.array(y_data))  # Y-axis
     plt.draw()
+
+def update_point_plot():
+    line.set_xdata(np.arange(len(x_data)))
+    line.set_ydata(np.array(y_pred_deque))
+    plt.draw()
 # Real-time plotting
 readings = 0
 while True:
@@ -225,7 +231,7 @@ while True:
             #     value = value * a + (1 - a) * y_data[-1]
             x_data.append(len(x_data))
             y_data.append(value)
-            y_data_list.append(value)
+
             blink_data_list.append(value)
 
             # Blink Calibration phase
@@ -241,7 +247,6 @@ while True:
                         record_blink = False
                         blink_current_idx = len(blink_data_list) - 1
                         print('Captured Blink')
-
                         blink_data_arr.append(blink_data_list[:blink_current_idx])
                         blink_data_list = []
                 else:
@@ -250,7 +255,7 @@ while True:
                 if n.poll() is not None:
                     print('Blink Calibration Complete, Setting Blink Threshold')
                     deltaEOG_blink_lowest = set_blink_threshold(blink_data_arr)
-
+                    print('blink threshold' , deltaEOG_blink_lowest)
                     blink_calibrating = False
                     blink_calibrated = True
                     print(blink_calibrating)
@@ -261,7 +266,8 @@ while True:
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
                 calibrating = True
-            if calibrating: # while the game is being run...
+            if calibrating:
+                y_data_list.append(value) # while the game is being run...
                 if record_eye_mvmt: # collect calibration data
                     if (not press):
                         press=True
@@ -277,12 +283,25 @@ while True:
                 if p.poll() is not None: # when calibration is over
                     with open("calibration_points.json") as f: # load the list of random points generated in calibration_game
                         points = json.load(f)
-                    print('Calibration Complete. Training Model...')
+                    print('EYE MOVEMENT Calibration Complete.')
+
+
                     #TEST THESE FUNCITONS TODAY
+                    for prev_readings in y_data_arr:
+                            print(len(prev_readings))
                     deltaEOG_v, deltaY = get_deltaEOG_train(y_data_arr), get_deltaY(points)
-                    deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
+
+                    with open("deltaEOG_v_eye_movements.json", "w") as f:
+                        json.dump(deltaEOG_v.tolist(), f)
+
+
+                    with open("deltaY.json", "w") as f:
+                        json.dump(deltaY.tolist(), f)
+
+                    # deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
                     print("Filtering data")
                     model=train_model(deltaEOG_v, deltaY)
+                    update_batch_size = 50
 
                     calibrating = False # stop the loop
                     calibrated = True
@@ -293,7 +312,7 @@ while True:
 
             #consider using separate batch sizes to deal with plot lag
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
-                update_plot()
+                # update_plot()
                 #Call Model.predict here
 
                 if calibrated and blink_calibrated: # if calibration finished
@@ -301,9 +320,12 @@ while True:
                     classification = classify(deltaEOG_v, deltaEOG_blink_lowest)
                     if not classification:
                         y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
+                        y_pred_deque.append(y_pred)
+                        update_point_plot()
                         print(y_pred)
                     else: 
                         print('blink')
+
 
 
                 readings = 0
@@ -315,8 +337,6 @@ while True:
             pass
     if close_program:
             #print(len(y_data_arr))
-            for prev_readings in y_data_arr:
-                 print(len(prev_readings))
             break
     
 ser.close()

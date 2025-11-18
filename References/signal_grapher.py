@@ -1,11 +1,11 @@
 import serial
 import matplotlib.pyplot as plt
 import numpy as np
-import keyboard
+from pynput import keyboard
 from collections import deque
 
 # Set up the serial port and parameters
-serial_port = 'COM5'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem101'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
@@ -21,8 +21,6 @@ y_data = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
 ax.set_ylim(0, 1023)
-y_data_list = []
-y_data_arr = []
 press=False
 
 def update_plot():
@@ -31,6 +29,23 @@ def update_plot():
     plt.draw()
 # Real-time plotting
 readings = 0
+
+
+global close_program
+
+close_program = False
+
+
+def on_press(key):
+    try:
+        global close_program
+        if key.char == 'q':
+            close_program = True
+    except AttributeError:
+        # handle special keys (e.g. space, enter)
+        pass
+listener = keyboard.Listener(on_press=on_press)
+listener.start()
 while True:
     if ser.in_waiting > 0:
         try:
@@ -40,17 +55,6 @@ while True:
             #     value = value * a + (1 - a) * y_data[-1]
             x_data.append(len(x_data))
             y_data.append(value)
-            y_data_list.append(value)
-            if keyboard.is_pressed(" "):
-                if (not press):
-                    press=True
-                    keyboard.release(" ")
-                    current_idx = len(y_data_list) - 1
-                    print(y_data_list)
-                    y_data_arr.append(y_data_list[:current_idx])
-                    y_data_list = []
-            else:
-                press=False
             readings += 1
             if readings > update_batch_size:
                 update_plot()
@@ -60,11 +64,8 @@ while True:
             pass
         except UnicodeDecodeError:
             pass
-    if keyboard.is_pressed('q'):
-            #print(len(y_data_arr))
-            for prev_readings in y_data_arr:
-                 print(len(prev_readings))
-            break
+    if close_program:
+        break
             
 
 ser.close()

@@ -26,7 +26,7 @@ y = 0
 height = root.winfo_height()
 width = root.winfo_width()
 r = 10  #Radius, change if needed
-n = 10
+n = 50
 circle_count = 0
 points=[]
 
