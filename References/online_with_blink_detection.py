@@ -270,6 +270,7 @@ while True:
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
                 calibrating = True
+            
             if calibrating:
                 y_data_list.append(value) # while the game is being run...
                 if record_eye_mvmt: # collect calibration data
