@@ -1,0 +1,143 @@
+# Modified calibration_game.py with fade transitions
+import tkinter as tk
+import random
+import json
+import os
+
+root = tk.Tk()
+root.attributes('-fullscreen', True)
+root.attributes('-topmost', True)
+root.update_idletasks()
+
+canvas = tk.Canvas(root, bg='black')
+canvas.pack(fill='both', expand=True)
+root.update()
+root.focus_force()
+root.lift()
+root.after(100, lambda: root.focus_force())
+
+x = 0
+y = 0
+height = root.winfo_height()
+width = root.winfo_width()
+r = 20
+n = 50
+circle_count = 0
+points = []
+points_converted = [(0,0)]
+
+# Fading helpers
+# FADE_STEPS = 50
+
+def fade_item(item, start, end, itemtype, callback=None):
+
+    if itemtype == 'point':
+        FADE_STEPS = 50
+    elif itemtype == 'arrow':
+        FADE_STEPS = 20
+    else:
+        AttributeError
+    step = (end - start) / FADE_STEPS
+
+    def fade(i=0):
+        if i > FADE_STEPS:
+            if callback: callback()
+            return
+        if itemtype == 'point':
+            color = f"#{int(start + step * i):02x}{int(start + step * i):02x}{int(start + step * i):02x}"
+        elif itemtype == 'arrow':
+            color = f"#{int(start + step * i):02x}0000"
+        else: 
+            AttributeError
+        canvas.itemconfig(item, fill=color)
+        root.after(20, lambda: fade(i+1))
+
+    fade()
+
+
+def convert(x,y,w=width,h=height):
+    x1 = x - w/2
+    y1 = -(y - h/2)
+    return (x1, y1)
+
+# initial center circle
+start_circle = canvas.create_oval(width/2 - r, height/2 - r, width/2 + r, height/2 + r, fill='blue', outline='black')
+
+prev_circle_item = start_circle
+
+start_arrow = None
+
+prev_arrow_item = start_arrow
+def draw_random_oval(event):
+    global circle_count, prev_circle_item, prev_arrow_item
+
+    if circle_count >= n:
+        print(points)
+        root.destroy()
+        return
+
+    rx = random.randint(x + r, width - r)
+    ry = random.randint(y + r, height - r)
+
+    points.append((rx, ry))
+    points_converted.append(convert(rx, ry))
+
+    new_circle = canvas.create_oval(rx - r, ry - r, rx + r, ry + r, fill='white', outline='black')
+
+    # fade out previous, fade in next
+    fade_item(prev_circle_item, 255, 0, itemtype='point')
+    fade_item(new_circle, 0, 255, itemtype='point')
+
+    prev_circle_item = new_circle
+
+    # draw arrow
+    px, py = points[circle_count - 1] if circle_count > 0 else (width/2, height/2)
+    new_arrow = canvas.create_line(px, py, rx, ry, arrow=tk.LAST, width=2, fill='red', dash = (3, 5))
+
+    fade_item(prev_arrow_item, 255, 0, itemtype='arrow')
+    fade_item(new_arrow, 0, 255, itemtype='arrow')
+
+    prev_arrow_item = new_arrow
+
+    circle_count += 1
+
+    if circle_count == n:
+        print("Maximum reached")
+        print(points_converted)
+        root.destroy()
+
+
+def close_window(event):
+    root.destroy()
+
+
+root.bind('d', draw_random_oval)
+
+root.bind('q', close_window)
+root.bind('<Escape>', lambda e: root.attributes('-fullscreen', False))
+root.focus_set()
+
+# overlap timing so next point appears early
+OVERLAP_MS = 300  # new point appears 300ms before previous fades
+
+# auto-generate a new point every 2 second
+
+def auto_press_d():
+    root.event_generate('<KeyPress-d>') # simulate user pressing 'd'
+    if circle_count < n:
+        root.after(2000 - OVERLAP_MS, auto_press_d)
+
+root.after(2000 - OVERLAP_MS, auto_press_d)
+
+
+# def auto_step():
+#     draw_random_oval()
+#     if circle_count < n:
+#         root.after(2000 - OVERLAP_MS, auto_step)
+
+# root.after(2000 - OVERLAP_MS, auto_step)
+
+root.mainloop()
+
+with open("calibration_points.json", "w") as f:
+    json.dump(points_converted, f)

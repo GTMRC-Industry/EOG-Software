@@ -210,7 +210,6 @@ blink_press = False
 n = None
 
 
-
 def update_plot():
     line.set_xdata(np.arange(len(x_data)))  # X-axis
     line.set_ydata(np.array(y_data))  # Y-axis
@@ -232,16 +231,18 @@ while True:
             x_data.append(len(x_data))
             y_data.append(value)
 
-            blink_data_list.append(value)
-
             # Blink Calibration phase
-
-            if open_blink_calibration and not blink_calibrating: # press k to open the blink game
+            if open_blink_calibration and not blink_calibrating:
+                 # press k to open the blink game
                 print('Opening Blink Game')
                 n = subprocess.Popen(["python3", "blink_game.py"])
                 blink_calibrating = True
             if blink_calibrating:
+
+                blink_data_list.append(value)
+
                 if record_blink:
+
                     if (not blink_press):
                         blink_press = True
                         record_blink = False
@@ -253,6 +254,7 @@ while True:
                     blink_press = False
 
                 if n.poll() is not None:
+
                     print('Blink Calibration Complete, Setting Blink Threshold')
                     deltaEOG_blink_lowest = set_blink_threshold(blink_data_arr)
                     print('blink threshold' , deltaEOG_blink_lowest)
@@ -261,6 +263,8 @@ while True:
                     print(blink_calibrating)
 
             
+
+
             # Eye Movement Calibration phase
             if open_eye_mvmt_calibration and not calibrating: # press c to open the calibration game
                 print('Opening Calibration Game')
@@ -291,12 +295,18 @@ while True:
                             print(len(prev_readings))
                     deltaEOG_v, deltaY = get_deltaEOG_train(y_data_arr), get_deltaY(points)
 
+                    # dump json files of the recorded eye movements and points for future investigation
                     with open("deltaEOG_v_eye_movements.json", "w") as f:
                         json.dump(deltaEOG_v.tolist(), f)
 
-
                     with open("deltaY.json", "w") as f:
                         json.dump(deltaY.tolist(), f)
+                    
+                    ###### NEW CODE
+                    deltaEOG_v = deltaEOG_v[[not classify(entry) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
+                    deltaY = deltaY[[not classify(entry) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
+                    ###### NEW CODE
+
 
                     # deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
                     print("Filtering data")
@@ -325,8 +335,6 @@ while True:
                         print(y_pred)
                     else: 
                         print('blink')
-
-
 
                 readings = 0
                 plt.pause(0.01)
