@@ -22,6 +22,11 @@ height = root.winfo_height()
 width = root.winfo_width()
 r = 20
 n = 50
+n_per_round=10
+n_rounds=n/n_per_round
+cooldown=10 #10 seconds for each break
+time_left=cooldown
+stop=False
 circle_count = 0
 points = []
 points_converted = [(0,0)]
@@ -72,47 +77,52 @@ start_arrow = None
 
 prev_arrow_item = start_arrow
 def draw_random_oval(event):
-    global circle_count, prev_circle_item, prev_arrow_item
+    global circle_count, prev_circle_item, prev_arrow_item, stop
+    if (circle_count % n_per_round==0) and (circle_count!=0): #This means its either 10,20,30...
+            if stop==True:
+                circle_count+=1
+            else:
+                manage_breaks()
+    if stop==False:
+        if circle_count >= n:
+            root.destroy()
+            return
 
-    if circle_count >= n:
-        root.destroy()
-        return
+        rx = random.randint(x + r, width - r)
+        ry = random.randint(y + r, height - r)
 
-    rx = random.randint(x + r, width - r)
-    ry = random.randint(y + r, height - r)
+        points.append((rx, ry))
+        points_converted.append(convert(rx, ry))
 
-    points.append((rx, ry))
-    points_converted.append(convert(rx, ry))
+        new_circle = canvas.create_oval(rx - r, ry - r, rx + r, ry + r, fill='white', outline='black')
 
-    new_circle = canvas.create_oval(rx - r, ry - r, rx + r, ry + r, fill='white', outline='black')
+        # fade out previous, fade in next
 
-    # fade out previous, fade in next
+        fade_item(prev_circle_item, 255, 0, itemtype='point', mode='grayscale')
 
-    fade_item(prev_circle_item, 255, 0, itemtype='point', mode='grayscale')
-
-    # if (circle_count + 1) % 4 == 0:
-    #     fade_item(new_circle, 0, 255, itemtype='point', mode='yellow')
-    # else:
-    fade_item(new_circle, 0, 255, itemtype='point', mode='grayscale')
+        # if (circle_count + 1) % 4 == 0:
+        #     fade_item(new_circle, 0, 255, itemtype='point', mode='yellow')
+        # else:
+        fade_item(new_circle, 0, 255, itemtype='point', mode='grayscale')
 
 
-    prev_circle_item = new_circle
+        prev_circle_item = new_circle
 
-    # draw arrow
-    px, py = points[circle_count - 1] if circle_count > 0 else (width/2, height/2)
-    new_arrow = canvas.create_line(px, py, rx, ry, arrow=tk.LAST, width=2, fill='red', dash = (3, 5))
+        # draw arrow
+        px, py = points[circle_count - 1] if circle_count > 0 else (width/2, height/2)
+        new_arrow = canvas.create_line(px, py, rx, ry, arrow=tk.LAST, width=2, fill='red', dash = (3, 5))
 
-    fade_item(prev_arrow_item, 255, 0, itemtype='arrow', mode='red')
-    fade_item(new_arrow, 0, 255, itemtype='arrow', mode='red')
+        fade_item(prev_arrow_item, 255, 0, itemtype='arrow', mode='red')
+        fade_item(new_arrow, 0, 255, itemtype='arrow', mode='red')
 
-    prev_arrow_item = new_arrow
+        prev_arrow_item = new_arrow
 
-    circle_count += 1
+        circle_count += 1
 
-    if circle_count == n:
-        print("Maximum reached")
-        print(points_converted)
-        root.destroy()
+        if circle_count == n:
+            print("Maximum reached")
+            print(points_converted)
+            root.destroy()
 
 
 def close_window(event):
@@ -139,9 +149,38 @@ def auto_press_d():
     # elif circle_count < n and circle_count % 4 == 0:
     #     print(circle_count, 'blink allowed')
     #     root.after(3000 - OVERLAP_MS, auto_press_d)
+def countdown(): #During break, will let the user know time left for next round
+    if time_left==0:
+        #Erase message
+
+        pass
+    pass
+    
+def reset_round():
+    global prev_circle_item,prev_arrow_item, time_left
+    prev_circle_item=canvas.create_oval(width/2 - r, height/2 - r, width/2 + r, height/2 + r, fill='blue', outline='black')
+    points.append((width/2, height/2))
+    points_converted.append(convert(width/2, height/2))
+    prev_arrow_item=start_arrow
+    #Label for text
+    #label = tk.Label(root, text="Time until next round")
+    #label.pack()
+
+
+def manage_breaks():
+    global stop, prev_arrow_item, prev_circle_item, time_left
+    if stop==False:
+        print("LLEGUE")
+        stop=True
+        fade_item(prev_arrow_item, 255, 0, itemtype='arrow', mode='red')
+        fade_item(prev_circle_item, 255, 0, itemtype='point', mode='grayscale')
+        root.after(2000-OVERLAP_MS,reset_round)
+        time_left=cooldown
+        root.after(10000,manage_breaks)
+    else:
+        stop=False
 
 root.after(2000 - OVERLAP_MS, auto_press_d)
-
 
 # def auto_step():
 #     draw_random_oval()
