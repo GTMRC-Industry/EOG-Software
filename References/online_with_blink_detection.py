@@ -15,7 +15,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegr
 import time
 
 # Set up the serial port and parameters
-serial_port = '/dev/cu.usbmodem1101'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem11401'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
@@ -31,7 +31,7 @@ y_data = deque(maxlen=history)
 y_pred_deque = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
-ax.set_ylim(-200, 200)
+ax.set_ylim(0, 1000)
 y_data_list = []
 y_data_arr = []
 blink_data_list = []
@@ -46,12 +46,14 @@ global record_blink
 global open_eye_mvmt_calibration
 global record_eye_mvmt
 global close_program
+global d_count
 
 open_blink_calibration = False
 record_blink = False
 open_eye_mvmt_calibration = False
 record_eye_mvmt = False
 close_program = False
+d_count = 0
 print("BEFORE LISTENER")
 def on_press(key):
     try:
@@ -60,6 +62,7 @@ def on_press(key):
         global open_eye_mvmt_calibration
         global record_eye_mvmt
         global close_program
+        global d_count
         open_blink_calibration = False
         record_blink = False
         open_eye_mvmt_calibration = False
@@ -74,6 +77,7 @@ def on_press(key):
             open_eye_mvmt_calibration = True
         elif key.char == 'd':
             print('pressed d')
+            d_count += 1
             record_eye_mvmt = True
         elif key.char == 'q':
             close_program = True
@@ -98,18 +102,16 @@ def get_deltaEOG_train(y_data_arr):
     deltaEOG_v = np.array([])
     # Sliding window
     window_size = 150
-    for entry in y_data_arr:
-        
+    for entry in y_data_arr:        
+        entry = entry - np.mean(entry[:10])
+
         i = 0
         window_deltas_y = []
-        
-        for i in range(len(entry) - window_size):
-            i_max_y, i_min_y = np.argmax(entry), np.argmin(entry)
-            if i_max_y > i_min_y:
-                # signal went down first, then up → positive saccade
+        if max(entry, key=abs) > entry[0]:
+            for i in range(len(entry) - window_size):
                 window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
-            else:
-                # signal went up first, then down → negative saccade
+        else:
+            for i in range(len(entry) - window_size):
                 window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
 
         deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
@@ -149,7 +151,7 @@ def train_model(deltaEOG_v, deltaY):
 def set_blink_threshold(blink_data):
     deltaEOG_blinks = np.array([])
     # use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
-    window_size = 100
+    window_size = 200
     for entry in blink_data:
         
         i = 0
@@ -162,7 +164,7 @@ def set_blink_threshold(blink_data):
         deltaEOG_blinks = np.append(deltaEOG_blinks, max(window_deltas_y, key=abs))
     
     deltaEOG_blink_std = np.std(deltaEOG_blinks)
-    deltaEOG_blink_lowest = np.min(deltaEOG_blinks) - deltaEOG_blink_std
+    deltaEOG_blink_lowest = np.min(deltaEOG_blinks)
 
     return deltaEOG_blink_lowest
 
@@ -186,12 +188,13 @@ def get_deltaEOG_test(y_data):
     i = 0
     window_deltas_y = []
     entry=list(y_data)
-    for i in range(len(entry) - window_size):
-        i_max_y, i_min_y = np.argmax(entry), np.argmin(entry)
-        if i_max_y > i_min_y:
-            # signal went down first, then up → positive saccade
+    entry = entry - np.mean(entry[:10])
+    if max(entry, key=abs) > entry[0]:
+        for i in range(len(entry) - window_size):
+            # signal went down first, then up → positive saccadekc
             window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
-        else:
+    else:
+        for i in range(len(entry) - window_size):
             # signal went up first, then down → negative saccade
             window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
 
@@ -268,10 +271,10 @@ while True:
             # Eye Movement Calibration phase
             if open_eye_mvmt_calibration and not calibrating: # press c to open the calibration game
                 print('Opening Calibration Game')
-                p = subprocess.Popen(["python3", "calibration_game.py"]) #run the calibration game
+                p = subprocess.Popen(["python3", "updated_calibration_game.py"]) #run the calibration game
                 calibrating = True
             
-            if calibrating:
+            if calibrating and d_count > 0:
                 y_data_list.append(value) # while the game is being run...
                 if record_eye_mvmt: # collect calibration data
                     if (not press):
@@ -285,15 +288,22 @@ while True:
                 else:
                     press=False
 
-                if p.poll() is not None: # when calibration is over
+                
+
+                if p.poll() is not None:# when calibration is over
                     with open("calibration_points.json") as f: # load the list of random points generated in calibration_game
                         points = json.load(f)
-                    print('EYE MOVEMENT Calibration Complete.')
+                    # print('EYE MOVEMENT Calibration Complete.')
+                    
+                    y_data_arr.pop(0)
+
+                    with open("raw_eye_movements.json", "w") as f:
+                            json.dump(y_data_arr, f)
 
 
                     #TEST THESE FUNCITONS TODAY
-                    for prev_readings in y_data_arr:
-                            print(len(prev_readings))
+                    # for prev_readings in y_data_arr:
+                    #          print(len(prev_readings))
                     deltaEOG_v, deltaY = get_deltaEOG_train(y_data_arr), get_deltaY(points)
 
                     # dump json files of the recorded eye movements and points for future investigation
@@ -303,15 +313,19 @@ while True:
                     with open("deltaY.json", "w") as f:
                         json.dump(deltaY.tolist(), f)
                     
-                    ###### NEW CODE
-                    deltaEOG_v = deltaEOG_v[[not classify(entry) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
-                    deltaY = deltaY[[not classify(entry) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
-                    ###### NEW CODE
+
+
+                    #This filters out any blinks that may have occurred during calibration
+                    filtered_deltaEOG_v = deltaEOG_v[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
+                    deltaY = deltaY[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
+                    print('new length of deltaY: ', len(deltaY))
 
 
                     # deltaEOG_v, deltaY = filter_data(deltaEOG_v, deltaY)
-                    print("Filtering data")
-                    model=train_model(deltaEOG_v, deltaY)
+                    # print("Filtering data")
+                    print('before training')
+                    model=train_model(filtered_deltaEOG_v, deltaY)
+                    print('after training')
                     update_batch_size = 50
 
                     calibrating = False # stop the loop
@@ -323,7 +337,7 @@ while True:
 
             #consider using separate batch sizes to deal with plot lag
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
-                # update_plot()
+                update_plot()
                 #Call Model.predict here
 
                 if calibrated and blink_calibrated: # if calibration finished
@@ -331,8 +345,8 @@ while True:
                     classification = classify(deltaEOG_v, deltaEOG_blink_lowest)
                     if not classification:
                         y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
-                        y_pred_deque.append(y_pred)
-                        update_point_plot()
+                        # y_pred_deque.append(y_pred)
+                        # update_point_plot()
                         print(y_pred)
                     else: 
                         print('blink')

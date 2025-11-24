@@ -33,7 +33,7 @@ canvas.pack()
 # Add text to canvas
 text_item = canvas.create_text((width / 2), (height / 2), text=str(count), fill="white", font=("Helvetica", 48))
 
-canvas.itemconfig(text_item, text = 'Blink after every time you press B, press B to start')
+canvas.itemconfig(text_item, text = 'Blink and then press B: start now')
 def close_window(event):
     root.destroy()
 # Bind key press event

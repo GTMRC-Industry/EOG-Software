@@ -21,7 +21,7 @@ y = 0
 height = root.winfo_height()
 width = root.winfo_width()
 r = 20
-n = 50
+n = 20
 circle_count = 0
 points = []
 points_converted = [(0,0)]
@@ -111,6 +111,7 @@ def draw_random_oval(event):
 
     if circle_count == n:
         print("Maximum reached")
+        points_converted.pop()
         print(points_converted)
         root.destroy()
 
@@ -131,16 +132,16 @@ OVERLAP_MS = 300  # new point appears 300ms before previous fades
 
 # auto-generate a new point every 2 second
 
-def auto_press_d():
-    root.event_generate('<KeyPress-d>') # simulate user pressing 'd'
-    # if circle_count < n and circle_count % 4 != 0:
-    root.after(2000 - OVERLAP_MS, auto_press_d)
+# def auto_press_d():
+#     root.event_generate('<KeyPress-d>') # simulate user pressing 'd'
+#     # if circle_count < n and circle_count % 4 != 0:
+#     root.after(2000 - OVERLAP_MS, auto_press_d)
 
     # elif circle_count < n and circle_count % 4 == 0:
     #     print(circle_count, 'blink allowed')
     #     root.after(3000 - OVERLAP_MS, auto_press_d)
 
-root.after(2000 - OVERLAP_MS, auto_press_d)
+# root.after(2000 - OVERLAP_MS, auto_press_d)
 
 
 # def auto_step():
