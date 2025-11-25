@@ -36,8 +36,11 @@ y_data_list = []
 y_data_arr = []
 blink_data_list = []
 blink_data_arr = []
+history_rt = []
+blink_cooldown = []
+rt = np.array([])
 
-
+after_blink = 0
 #Feature Extraction Setup
 global c 
 c=0
@@ -164,7 +167,7 @@ def set_blink_threshold(blink_data):
         deltaEOG_blinks = np.append(deltaEOG_blinks, max(window_deltas_y, key=abs))
     
     deltaEOG_blink_std = np.std(deltaEOG_blinks)
-    deltaEOG_blink_lowest = np.min(deltaEOG_blinks)
+    deltaEOG_blink_lowest = np.min(deltaEOG_blinks) - deltaEOG_blink_std
 
     return deltaEOG_blink_lowest
 
@@ -345,11 +348,34 @@ while True:
                     classification = classify(deltaEOG_v, deltaEOG_blink_lowest)
                     if not classification:
                         y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
-                        # y_pred_deque.append(y_pred)
-                        # update_point_plot()
-                        print(y_pred)
+
+
+                        after_blink -= 1
+                        # if len(rt) >= 1: #FIgure THIS OUT LATER
+                        #     y_pred_deque.append(rt[-1])
+                        #     update_point_plot()
+
+                        if after_blink < 0:
+                            print(y_pred)
+                            history_rt.append(y_pred) # only update history_rt with predictions if there is no blink or its been 10 samples since a blink
+                            if len(history_rt) > 2:
+                                rt = np.append(rt, history_rt[-2]) # instantiate rt essentially being 1 value behind history_rt
+                                # print(rt[-1]) 
                     else: 
-                        print('blink')
+
+                        if history_rt[-1] != 'blink': # if your last recorded value was not a blink and a blink is detected... (e.g., very first window that detects the blink)
+                            print('blink')
+                            history_rt.append('blink')
+                            print(f'removing {history_rt[-2]} through {history_rt[-4]}')
+                            del history_rt[-4:-1] # remove previous predicted EOG values that could been very large up due to windows detecting first half of blinks
+                            rt = np.append(rt, history_rt[-2]) # capture the change by rt taking the second to last value of history_rt
+                            # print(rt[-1])
+                        after_blink = 10 # pause predictions being appended to history_rt for 10 samples after a blink is detected
+                
+
+
+                        
+
 
                 readings = 0
                 plt.pause(0.01)
@@ -360,7 +386,14 @@ while True:
             pass
     if close_program:
             #print(len(y_data_arr))
+            with open("rt.json", "w") as f:
+                    json.dump(rt.tolist(), f)
+
+            # with open("history_rt.json", "w") as f:
+            #         json.dump(history_rt, f)
             break
+    
+
     
 ser.close()
 plt.ioff()  # Turn off interactive mode
