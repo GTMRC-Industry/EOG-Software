@@ -12,13 +12,14 @@ import subprocess
 import json
 import os
 from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegressor, RANSACRegressor
+from scipy.signal import savgol_filter
 import time
 
 # Set up the serial port and parameters
 serial_port = '/dev/cu.usbmodem11401'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
-history = 500
+history = 250
 update_batch_size = 20
 a = 0.5 # Exponential Smoothing Parameter
 baseline = 1023 / 2
@@ -36,7 +37,10 @@ y_data_list = []
 y_data_arr = []
 blink_data_list = []
 blink_data_arr = []
-history_rt = []
+
+history_dY = []
+history_dEOG = []
+
 blink_cooldown = []
 rt = np.array([])
 
@@ -57,6 +61,11 @@ open_eye_mvmt_calibration = False
 record_eye_mvmt = False
 close_program = False
 d_count = 0
+
+
+pending_blink_pause = False
+
+
 print("BEFORE LISTENER")
 def on_press(key):
     try:
@@ -105,7 +114,9 @@ def get_deltaEOG_train(y_data_arr):
     deltaEOG_v = np.array([])
     # Sliding window
     window_size = 150
-    for entry in y_data_arr:        
+    for entry in y_data_arr:
+
+        entry = savgol_filter(entry, 31, 3)   
         entry = entry - np.mean(entry[:10])
 
         i = 0
@@ -153,10 +164,21 @@ def train_model(deltaEOG_v, deltaY):
 
 def set_blink_threshold(blink_data):
     deltaEOG_blinks = np.array([])
+    slopes = np.array([])
+    accels = np.array([])
     # use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
     window_size = 200
     for entry in blink_data:
-        
+
+        entry = savgol_filter(entry, 31, 3)
+        v = savgol_filter(entry, 31, 3, deriv=1)
+        a = savgol_filter(entry, 31, 3, deriv=2)
+
+        argmax = np.argmax(entry)
+        entry = entry[:argmax]
+        v = v[:argmax]
+        a = a[:argmax]
+
         i = 0
         window_deltas_y = []
         
@@ -164,46 +186,87 @@ def set_blink_threshold(blink_data):
             # signal went down first, then up → positive saccade
             window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
 
+        max_diff_loc = np.argmax(window_deltas_y)
+        max_window_bounds = (max_diff_loc, max_diff_loc + window_size)
+
         deltaEOG_blinks = np.append(deltaEOG_blinks, max(window_deltas_y, key=abs))
+        slopes = np.append(slopes, max(v[max_window_bounds[0] : max_window_bounds[1]]))
+        accels = np.append(accels, max(a[max_window_bounds[0] : max_window_bounds[1]]))
+
+
     
     deltaEOG_blink_std = np.std(deltaEOG_blinks)
+    slope_std = np.std(slopes)
     deltaEOG_blink_lowest = np.min(deltaEOG_blinks) - deltaEOG_blink_std
+    slope_lowest = np.min(slopes) - slope_std
+    accel_lowest = np.mean(accels)
 
-    return deltaEOG_blink_lowest
+    return deltaEOG_blink_lowest, slope_lowest, accel_lowest
 
 
-# CLASSIFY BLINK OR SACCADE ------------------
+# CLASSIFY BLINK OR SACCADE ------------------k
 
-def classify(deltaEOG_v, deltaEOG_blink_lowest):
-    if deltaEOG_v < deltaEOG_blink_lowest: #if saccade
+def classify(deltaEOG_v, deltaEOG_blink_lowest, deltaDeltaEOG, slope, slope_lowest, accel, accel_lowest):
+    if  deltaEOG_v > deltaEOG_blink_lowest:
+        blink = True
+
+    else:
         blink = False
-    else: #if blink
+
+    return blink
+
+
+def classify_only_peak_threshold(deltaEOG_v, deltaEOG_blink_lowest):
+    if deltaEOG_v < deltaEOG_blink_lowest:
+        blink = False
+    else:
         blink = True
 
     return blink
+
 
 
 # RUN REGRESSION ---------------------
 def get_deltaEOG_test(y_data):
     deltaEOG_v = np.array([])
     # Sliding window
-    window_size = 150 
+    window_size = 150
     i = 0
     window_deltas_y = []
     entry=list(y_data)
     entry = entry - np.mean(entry[:10])
-    if max(entry, key=abs) > entry[0]:
+
+
+    if max(entry, key=abs) > entry[0]: #if positive saccade 
+
+        entry = savgol_filter(entry, 31, 3)
+        v = savgol_filter(entry, 31, 3, deriv=1)
+        a = savgol_filter(entry, 31, 3, deriv=2)
+
+        argmax = np.argmax(entry)
+        entry = entry[:argmax]
+        v = v[:argmax]
+        a = a[:argmax]
+
         for i in range(len(entry) - window_size):
             # signal went down first, then up → positive saccadekc
             window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
+
+        max_diff_loc = np.argmax(window_deltas_y)
+        max_window_bounds = (max_diff_loc, max_diff_loc + window_size)
+
+        slope = max(v[max_window_bounds[0] : max_window_bounds[1]])
+        accel = max(a[max_window_bounds[0] : max_window_bounds[1]])
     else:
         for i in range(len(entry) - window_size):
             # signal went up first, then down → negative saccade
             window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
+        slope = -999
+        accel = -999
 
     deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
 
-    return deltaEOG_v
+    return deltaEOG_v, slope, accel
 
 calibrated = False
 calibrating = False 
@@ -221,10 +284,10 @@ def update_plot():
     line.set_ydata(np.array(y_data))  # Y-axis
     plt.draw()
 
-def update_point_plot():
-    line.set_xdata(np.arange(len(x_data)))
-    line.set_ydata(np.array(y_pred_deque))
-    plt.draw()
+# def update_point_plot():
+#     line.set_xdata(np.arange(len(x_data)))
+#     line.set_ydata(np.array(y_pred_deque))
+#     plt.draw()
 # Real-time plotting
 readings = 0
 while True:
@@ -261,13 +324,18 @@ while True:
 
                 if n.poll() is not None:
 
-                    print('Blink Calibration Complete, Setting Blink Threshold')
-                    deltaEOG_blink_lowest = set_blink_threshold(blink_data_arr)
-                    print('blink threshold' , deltaEOG_blink_lowest)
+                    print('Blink Calibration Complete, Setting Blink Thresholds')
+
+                    with open('raw_blinks.json', "w") as f:
+                        json.dump(blink_data_arr, f)
+
+                    deltaEOG_blink_lowest, slope_lowest, accel_lowest = set_blink_threshold(blink_data_arr)
+                    print('blink deltaEOG threshold' , deltaEOG_blink_lowest)
+                    print('blink slope threshold' , slope_lowest)
+                    print('blink accel threshold' , accel_lowest)
                     blink_calibrating = False
                     blink_calibrated = True
                     print(blink_calibrating)
-
             
 
 
@@ -319,8 +387,8 @@ while True:
 
 
                     #This filters out any blinks that may have occurred during calibration
-                    filtered_deltaEOG_v = deltaEOG_v[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
-                    deltaY = deltaY[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
+                    filtered_deltaEOG_v = deltaEOG_v[[not classify_only_peak_threshold(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
+                    deltaY = deltaY[[not classify_only_peak_threshold(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
                     print('new length of deltaY: ', len(deltaY))
 
 
@@ -344,35 +412,38 @@ while True:
                 #Call Model.predict here
 
                 if calibrated and blink_calibrated: # if calibration finished
-                    deltaEOG_v = get_deltaEOG_test(y_data)
-                    classification = classify(deltaEOG_v, deltaEOG_blink_lowest)
-                    if not classification:
-                        y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
 
+                    n = 3 # number of readings to delete before the blink is registered
 
-                        after_blink -= 1
-                        # if len(rt) >= 1: #FIgure THIS OUT LATER
-                        #     y_pred_deque.append(rt[-1])
-                        #     update_point_plot()
+                    deltaEOG_v, slope, accel = get_deltaEOG_test(y_data)
 
-                        if after_blink < 0:
-                            print(y_pred)
-                            history_rt.append(y_pred) # only update history_rt with predictions if there is no blink or its been 10 samples since a blink
-                            if len(history_rt) > 2:
-                                rt = np.append(rt, history_rt[-2]) # instantiate rt essentially being 1 value behind history_rt
-                                # print(rt[-1]) 
-                    else: 
+                    after_blink -= 1
+                    if after_blink < 0:
+                        history_dEOG.append(deltaEOG_v)
 
-                        if history_rt[-1] != 'blink': # if your last recorded value was not a blink and a blink is detected... (e.g., very first window that detects the blink)
+                        if len(history_dEOG) > 1:
+                            deltaDeltaEOG = history_dEOG[-1] - history_dEOG[-2]
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaDeltaEOG, slope, slope_lowest, accel, accel_lowest)
+                        else:
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0, slope, slope_lowest, accel, accel_lowest)
+                        if not classification:
+                            y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
+                    
+                            history_dY.append(y_pred)
+                            
+                            if len(history_dY) > 1:
+                                deltaDeltaY = history_dY[-1] - history_dY[-2]
+                                print(history_dY[-1], deltaEOG_v, slope) # only updkcate history_rt with predictions if there is no blink or its been 10 samples since a blink
+                                
+                        else: 
+                            #Some event action here
                             print('blink')
-                            history_rt.append('blink')
-                            print(f'removing {history_rt[-2]} through {history_rt[-4]}')
-                            del history_rt[-4:-1] # remove previous predicted EOG values that could been very large up due to windows detecting first half of blinks
-                            rt = np.append(rt, history_rt[-2]) # capture the change by rt taking the second to last value of history_rt
-                            # print(rt[-1])
-                        after_blink = 10 # pause predictions being appended to history_rt for 10 samples after a blink is detected
-                
+                            after_blink = 20
+                            classification = False
+                            
 
+                        
+ # pause predictions being appended to history_rt for 10 samples after a blink is detected
 
                         
 
@@ -396,5 +467,5 @@ while True:
 
     
 ser.close()
-plt.ioff()  # Turn off interactive mode
-plt.show()  # Keep the plot open after program finishes
+# plt.ioff()  # Turn off interactive mode
+# plt.show()  # Keep the plot open after program finisheskc
