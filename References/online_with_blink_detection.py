@@ -19,20 +19,21 @@ import time
 serial_port = '/dev/cu.usbmodem11401'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
-history = 250
+history = 500
 update_batch_size = 20
+update_cursor_batch_size = 0
 a = 0.5 # Exponential Smoothing Parameter
 baseline = 1023 / 2
 
 # Plot Setup
-plt.ion()
-fig, ax = plt.subplots()
+# plt.ion()
+# fig, ax = plt.subplots()
 x_data = deque(maxlen=history)
 y_data = deque(maxlen=history)
 y_pred_deque = deque(maxlen=history)
-line, = ax.plot([], [], 'r-')
-ax.set_xlim(0, history)
-ax.set_ylim(0, 1000)
+# line, = ax.plot([], [], 'r-')
+# ax.set_xlim(0, history)
+# ax.set_ylim(0, 1000)
 y_data_list = []
 y_data_arr = []
 blink_data_list = []
@@ -206,7 +207,7 @@ def set_blink_threshold(blink_data):
 
 # CLASSIFY BLINK OR SACCADE ------------------k
 
-def classify(deltaEOG_v, deltaEOG_blink_lowest, deltaDeltaEOG, slope, slope_lowest, accel, accel_lowest):
+def classify(deltaEOG_v, deltaEOG_blink_lowest, slope, slope_lowest, accel, accel_lowest):
     if  deltaEOG_v > deltaEOG_blink_lowest:
         blink = True
 
@@ -284,11 +285,65 @@ def update_plot():
     line.set_ydata(np.array(y_data))  # Y-axis
     plt.draw()
 
-# def update_point_plot():
-#     line.set_xdata(np.arange(len(x_data)))
-#     line.set_ydata(np.array(y_pred_deque))
-#     plt.draw()
+def update_point_plot():
+    line.set_xdata(np.arange(len(x_data)))
+    line.set_ydata(np.array(y_pred_deque))
+    plt.draw()
 # Real-time plotting
+
+### CURSOR SETUP
+
+import pyautogui
+from pynput.mouse import Controller, Button
+mouse = Controller()
+import time
+
+# ---------------------------------------------------------
+# CONFIG
+# ---------------------------------------------------------
+
+SCALE = 1   # multiplier to turn deltaY into pixels
+SMOOTHING = 0.6         # 0=no smoothing, 1=very smooth
+FREEZE_ON_BLINK = True   # optional: freezes cursor during blink
+MIN_MOVE_THRESHOLD = 10 # ignore tiny jitters
+
+# ---------------------------------------------------------
+# STATE VARIABLES
+# ---------------------------------------------------------
+
+screen_w, screen_h = pyautogui.size()
+
+cursor_x = screen_w // 2
+cursor_y = screen_h // 2
+
+print(cursor_x, cursor_y)
+mouse.position = (cursor_x, cursor_y)  # start centered
+
+
+# ---------------------------------------------------------
+# CURSOR UPDATE FUNCTION
+# ---------------------------------------------------------
+
+def update_cursor(deltaY):
+
+    # if abs(deltaY) < MIN_MOVE_THRESHOLD:
+    #     return  # ignokcre tiny movements
+    
+    # smoothed_delta = (1 - SMOOTHING) * deltaY
+    # smoothed_delta = smoothed_delta * SCALE
+    mouse.move(0, deltaY)
+    # time.sleep(0.0005)
+
+
+
+
+
+
+
+
+
+
+## MAIN LOOP
 readings = 0
 while True:
     if ser.in_waiting > 0:
@@ -397,18 +452,19 @@ while True:
                     print('before training')
                     model=train_model(filtered_deltaEOG_v, deltaY)
                     print('after training')
-                    update_batch_size = 50
+                    update_batch_size = 40
+
 
                     calibrating = False # stop the loop
                     calibrated = True
                     print(calibrating)
-            #End Calibration phase
+            #End Calibration phasekcq
 
             readings += 1
 
             #consider using separate batch sizes to deal with plot lag
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
-                update_plot()
+                # update_plot()
                 #Call Model.predict here
 
                 if calibrated and blink_calibrated: # if calibration finished
@@ -417,36 +473,37 @@ while True:
 
                     deltaEOG_v, slope, accel = get_deltaEOG_test(y_data)
 
+                    # update_cursor(0)
                     after_blink -= 1
+
                     if after_blink < 0:
                         history_dEOG.append(deltaEOG_v)
 
-                        if len(history_dEOG) > 1:
-                            deltaDeltaEOG = history_dEOG[-1] - history_dEOG[-2]
-                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaDeltaEOG, slope, slope_lowest, accel, accel_lowest)
-                        else:
-                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0, slope, slope_lowest, accel, accel_lowest)
+                        classification = classify(deltaEOG_v, deltaEOG_blink_lowest, slope, slope_lowest, accel, accel_lowest)
+
                         if not classification:
-                            y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
-                    
+                            if abs(deltaEOG_v) < 30:
+                                 y_pred = 0
+                            else:
+                                y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
+
                             history_dY.append(y_pred)
                             
                             if len(history_dY) > 1:
                                 deltaDeltaY = history_dY[-1] - history_dY[-2]
-                                print(history_dY[-1], deltaEOG_v, slope) # only updkcate history_rt with predictions if there is no blink or its been 10 samples since a blink
+                                print(deltaDeltaY, deltaEOG_v, slope)
+                                 # only updkcate history_rt with predictions if there is no blink or its been 10 samples since a blink
+                                update_cursor(-deltaDeltaY)
                                 
                         else: 
                             #Some event action here
+                            mouse.click((Button.left))
                             print('blink')
                             after_blink = 20
-                            classification = False
                             
 
                         
  # pause predictions being appended to history_rt for 10 samples after a blink is detected
-
-                        
-
 
                 readings = 0
                 plt.pause(0.01)
