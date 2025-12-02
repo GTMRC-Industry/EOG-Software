@@ -22,33 +22,34 @@ ser = serial.Serial(serial_port, baud_rate)
 history = 500
 update_batch_size = 20
 update_cursor_batch_size = 0
-a = 0.5 # Exponential Smoothing Parameter
+a = 0.05  # Exponential Smoothing Parameter
 baseline = 1023 / 2
 
 # Plot Setup
-# plt.ion()
-# fig, ax = plt.subplots()
+plt.ion()
+fig, ax = plt.subplots()
 x_data = deque(maxlen=history)
 y_data = deque(maxlen=history)
 y_pred_deque = deque(maxlen=history)
-# line, = ax.plot([], [], 'r-')
-# ax.set_xlim(0, history)
-# ax.set_ylim(0, 1000)
+line, = ax.plot([], [], 'r-')
+ax.set_xlim(0, history)
+ax.set_ylim(0, 1000)
+
+# Initialize data stream lists
 y_data_list = []
 y_data_arr = []
 blink_data_list = []
 blink_data_arr = []
 
+# Initialize 'history' lists to keep track of predicted values in real-time 
 history_dY = []
 history_dEOG = []
+history_slope = []
 
-blink_cooldown = []
-rt = np.array([])
+# Initialize cooldown variable used later in real-time prediction
+cooldown = 0
 
-after_blink = 0
 #Feature Extraction Setup
-global c 
-c=0
 global open_blink_calibration
 global record_blink
 global open_eye_mvmt_calibration
@@ -56,18 +57,33 @@ global record_eye_mvmt
 global close_program
 global d_count
 
+
+# Initialize boolean flags for keyboard listener
 open_blink_calibration = False
 record_blink = False
 open_eye_mvmt_calibration = False
 record_eye_mvmt = False
 close_program = False
+
+# Initialize boolean flags for calibration handling
+calibrated = False
+calibrating = False 
+press=False
+p = None
+
+blink_calibrating = False
+blink_calibrated = False
+blink_press = False
+n = None
+
+
+# Initialize counter to only take readings after the first point during saccade calibration 
 d_count = 0
 
 
-pending_blink_pause = False
+print("STARTING")
 
-
-print("BEFORE LISTENER")
+# Initialize Keyboard Listener
 def on_press(key):
     try:
         global open_blink_calibration
@@ -81,27 +97,32 @@ def on_press(key):
         open_eye_mvmt_calibration = False
         record_eye_mvmt = False
         close_program = False
+
         if key.char == 'k':
             open_blink_calibration = True
+
         elif key.char == 'b':
             record_blink = True
-            print('pressed b')
+
         elif key.char == 'c':
             open_eye_mvmt_calibration = True
+
         elif key.char == 'd':
-            print('pressed d')
             d_count += 1
             record_eye_mvmt = True
+
         elif key.char == 'q':
             close_program = True
+
     except AttributeError:
         # handle special keys (e.g. space, enter)
         pass
+
 listener = keyboard.Listener(on_press=on_press)
 listener.start()
 
-# EXTRACT FEATURES FOR TRAINING REGRESSION ------------------------
 
+# Feature extraction for training and fitting the linear regression model 
 def get_deltaY(points):
     y_points = np.array([])
     for point in points: 
@@ -122,6 +143,8 @@ def get_deltaEOG_train(y_data_arr):
 
         i = 0
         window_deltas_y = []
+        
+        # Characterize whether the saccade is positive or negative and then perform sliding window to get the largest deltaV (characteristic deltaV)
         if max(entry, key=abs) > entry[0]:
             for i in range(len(entry) - window_size):
                 window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
@@ -133,14 +156,11 @@ def get_deltaEOG_train(y_data_arr):
 
     return deltaEOG_v
 
-
+# Filter outliers out before fitting
 def filter_data(deltaEOG_v, deltaY):
     if len(deltaEOG_v)==len(deltaY):
         model_v = RANSACRegressor(residual_threshold=5.0)
-        print("Before fitting")
         model_v.fit(deltaEOG_v.reshape(-1, 1), deltaY)
-        
-        print("After fitting")
         inlier_mask = model_v.inlier_mask_
         deltaEOG_v = deltaEOG_v[inlier_mask]
         deltaY = deltaY[inlier_mask]
@@ -151,6 +171,8 @@ def filter_data(deltaEOG_v, deltaY):
         print("deltaY len:", len(deltaY), "std:", np.std(deltaY))
         sys.stdout.flush()
 
+
+# Fit the linear regression model and save the slope and intercept
 def train_model(deltaEOG_v, deltaY):
     model = LinearRegression()
     model.fit(deltaEOG_v.reshape(-1, 1), deltaY)
@@ -161,13 +183,13 @@ def train_model(deltaEOG_v, deltaY):
     return model
 
 
-# BLINK CALIBRATION -------------------
-
+# Set deltaV and slope thresholds for blinks
 def set_blink_threshold(blink_data):
     deltaEOG_blinks = np.array([])
     slopes = np.array([])
     accels = np.array([])
-    # use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
+
+    # Use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
     window_size = 200
     for entry in blink_data:
 
@@ -184,7 +206,6 @@ def set_blink_threshold(blink_data):
         window_deltas_y = []
         
         for i in range(len(entry) - window_size):
-            # signal went down first, then up → positive saccade
             window_deltas_y.append(max(entry[i: i + window_size]) - min(entry[i:i+ window_size]))
 
         max_diff_loc = np.argmax(window_deltas_y)
@@ -193,22 +214,19 @@ def set_blink_threshold(blink_data):
         deltaEOG_blinks = np.append(deltaEOG_blinks, max(window_deltas_y, key=abs))
         slopes = np.append(slopes, max(v[max_window_bounds[0] : max_window_bounds[1]]))
         accels = np.append(accels, max(a[max_window_bounds[0] : max_window_bounds[1]]))
-
-
-    
+   
     deltaEOG_blink_std = np.std(deltaEOG_blinks)
     slope_std = np.std(slopes)
-    deltaEOG_blink_lowest = np.min(deltaEOG_blinks) - deltaEOG_blink_std
+    deltaEOG_blink_lowest = np.min(deltaEOG_blinks)
     slope_lowest = np.min(slopes) - slope_std
     accel_lowest = np.mean(accels)
 
     return deltaEOG_blink_lowest, slope_lowest, accel_lowest
 
 
-# CLASSIFY BLINK OR SACCADE ------------------k
-
-def classify(deltaEOG_v, deltaEOG_blink_lowest, slope, slope_lowest, accel, accel_lowest):
-    if  deltaEOG_v > deltaEOG_blink_lowest:
+# Blink vs. Saccade classification based on changes in slope or deltaV thresholds
+def classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope, slope_lowest, accel, accel_lowest):
+    if deltaSlope > 3 or deltaEOG_v > deltaEOG_blink_lowest:
         blink = True
 
     else:
@@ -216,7 +234,7 @@ def classify(deltaEOG_v, deltaEOG_blink_lowest, slope, slope_lowest, accel, acce
 
     return blink
 
-
+# Classifier for training to filter out blinks during saccade calibration
 def classify_only_peak_threshold(deltaEOG_v, deltaEOG_blink_lowest):
     if deltaEOG_v < deltaEOG_blink_lowest:
         blink = False
@@ -225,9 +243,7 @@ def classify_only_peak_threshold(deltaEOG_v, deltaEOG_blink_lowest):
 
     return blink
 
-
-
-# RUN REGRESSION ---------------------
+# Extract features on real-time data
 def get_deltaEOG_test(y_data):
     deltaEOG_v = np.array([])
     # Sliding window
@@ -262,54 +278,33 @@ def get_deltaEOG_test(y_data):
         for i in range(len(entry) - window_size):
             # signal went up first, then down → negative saccade
             window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
-        slope = -999
-        accel = -999
+        slope = 0
+        accel = 0
 
     deltaEOG_v = np.append(deltaEOG_v, max(window_deltas_y, key=abs))
 
     return deltaEOG_v, slope, accel
 
-calibrated = False
-calibrating = False 
-press=False
-p = None
-
-blink_calibrating = False
-blink_calibrated = False
-blink_press = False
-n = None
-
-
+# Update the plot in real-time
 def update_plot():
     line.set_xdata(np.arange(len(x_data)))  # X-axis
     line.set_ydata(np.array(y_data))  # Y-axis
     plt.draw()
 
+# Update a different plot that plots the users eye movements in real-time
 def update_point_plot():
     line.set_xdata(np.arange(len(x_data)))
     line.set_ydata(np.array(y_pred_deque))
     plt.draw()
-# Real-time plotting
 
-### CURSOR SETUP
 
+
+
+# Setup cursor movements around the screen and clicks 
 import pyautogui
 from pynput.mouse import Controller, Button
 mouse = Controller()
 import time
-
-# ---------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------
-
-SCALE = 1   # multiplier to turn deltaY into pixels
-SMOOTHING = 0.6         # 0=no smoothing, 1=very smooth
-FREEZE_ON_BLINK = True   # optional: freezes cursor during blink
-MIN_MOVE_THRESHOLD = 10 # ignore tiny jitters
-
-# ---------------------------------------------------------
-# STATE VARIABLES
-# ---------------------------------------------------------
 
 screen_w, screen_h = pyautogui.size()
 
@@ -317,22 +312,32 @@ cursor_x = screen_w // 2
 cursor_y = screen_h // 2
 
 print(cursor_x, cursor_y)
-mouse.position = (cursor_x, cursor_y)  # start centered
 
+# Start the cursor at the center of the screen
+mouse.position = (cursor_x, cursor_y)
 
-# ---------------------------------------------------------
-# CURSOR UPDATE FUNCTION
-# ---------------------------------------------------------
-
+# Update the cursors position given a change in Y
 def update_cursor(deltaY):
 
-    # if abs(deltaY) < MIN_MOVE_THRESHOLD:
-    #     return  # ignokcre tiny movements
-    
-    # smoothed_delta = (1 - SMOOTHING) * deltaY
-    # smoothed_delta = smoothed_delta * SCALE
-    mouse.move(0, deltaY)
-    # time.sleep(0.0005)
+    with open('linear_model_coefficients.json') as f:
+        model_coef = json.load(f)
+
+    SCALE = 1 / model_coef['slope']
+
+    scaled_delta = deltaY * SCALE
+
+    # Set the max and min bound from the edges of the screen
+    bound = 20 
+
+    current_y = mouse.position[1]
+
+    # Handling if the cursor's new position would have exceeded screen boundaries
+    if current_y + scaled_delta > screen_h:
+        mouse.move(0, screen_h - current_y - bound)
+    elif current_y + scaled_delta < 0:
+        mouse.move(0, 0 - current_y + bound)
+    else:
+        mouse.move(0, scaled_delta)
 
 
 
@@ -342,22 +347,21 @@ def update_cursor(deltaY):
 
 
 
-
-## MAIN LOOP
+# MAIN LOOP
 readings = 0
 while True:
     if ser.in_waiting > 0:
         try:
             data = ser.readline().decode('utf-8').strip().split(',')[0]  # Read and decode data from serial
             value = int(data)
-            # if y_data:
-            #     value = value * a + (1 - a) * y_data[-1]
+            if y_data:
+                value = value * a + (1 - a) * y_data[-1]
             x_data.append(len(x_data))
             y_data.append(value)
 
-            # Blink Calibration phase
+            # Blink calibration phase
             if open_blink_calibration and not blink_calibrating:
-                 # press k to open the blink game
+
                 print('Opening Blink Game')
                 n = subprocess.Popen(["python3", "blink_game.py"])
                 blink_calibrating = True
@@ -377,8 +381,9 @@ while True:
                 else:
                     blink_press = False
 
-                if n.poll() is not None:
-
+                # If calibration finished...
+                if n.poll() is not None: 
+                    plt.close(fig)
                     print('Blink Calibration Complete, Setting Blink Thresholds')
 
                     with open('raw_blinks.json', "w") as f:
@@ -394,7 +399,7 @@ while True:
             
 
 
-            # Eye Movement Calibration phase
+            # Saccade calibration phase
             if open_eye_mvmt_calibration and not calibrating: # press c to open the calibration game
                 print('Opening Calibration Game')
                 p = subprocess.Popen(["python3", "updated_calibration_game.py"]) #run the calibration game
@@ -408,31 +413,31 @@ while True:
                         record_eye_mvmt = False
                         current_idx = len(y_data_list) - 1
                         print('Captured Eye Movement')
-                        # print(y_data_list)
+
+
                         y_data_arr.append(y_data_list[:current_idx])
                         y_data_list = []
                 else:
                     press=False
 
                 
-
-                if p.poll() is not None:# when calibration is over
-                    with open("calibration_points.json") as f: # load the list of random points generated in calibration_game
-                        points = json.load(f)
-                    # print('EYE MOVEMENT Calibration Complete.')
+                # If saccade calibration finished...
+                if p.poll() is not None:
                     
+                    # Load the points generated in the calibration game
+                    with open("calibration_points.json") as f: 
+                        points = json.load(f)
+                    
+                    # Remove the first recorded set of data (random movements)
                     y_data_arr.pop(0)
 
                     with open("raw_eye_movements.json", "w") as f:
                             json.dump(y_data_arr, f)
 
 
-                    #TEST THESE FUNCITONS TODAY
-                    # for prev_readings in y_data_arr:
-                    #          print(len(prev_readings))
                     deltaEOG_v, deltaY = get_deltaEOG_train(y_data_arr), get_deltaY(points)
 
-                    # dump json files of the recorded eye movements and points for future investigation
+                    # Dump json files of the recorded eye movements and points for future investigation
                     with open("deltaEOG_v_eye_movements.json", "w") as f:
                         json.dump(deltaEOG_v.tolist(), f)
 
@@ -454,56 +459,81 @@ while True:
                     print('after training')
                     update_batch_size = 40
 
-
-                    calibrating = False # stop the loop
+                    # Stop the loop
+                    calibrating = False
                     calibrated = True
-                    print(calibrating)
-            #End Calibration phasekcq
 
             readings += 1
 
-            #consider using separate batch sizes to deal with plot lag
+            # When both blink and saccade calibration are finished, start predicting in real-time
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
-                # update_plot()
-                #Call Model.predict here
+
+                # Update the plot 
+                update_plot()
 
                 if calibrated and blink_calibrated: # if calibration finished
 
-                    n = 3 # number of readings to delete before the blink is registered
-
+                    # Perform feature extraction on incoming real-time data
                     deltaEOG_v, slope, accel = get_deltaEOG_test(y_data)
 
-                    # update_cursor(0)
-                    after_blink -= 1
 
-                    if after_blink < 0:
+                    cooldown -= 1
+
+                    # If no cooldown activated
+                    if cooldown < 0:
+
+                        # Keep track of the incoming deltaVs and their respective slopes
                         history_dEOG.append(deltaEOG_v)
+                        history_slope.append(slope)
 
-                        classification = classify(deltaEOG_v, deltaEOG_blink_lowest, slope, slope_lowest, accel, accel_lowest)
+                        if len(history_slope) > 1:
 
+                            # Calculate the change in slope between windows, use for blink vs. saccade classification
+                            deltaSlope = history_slope[-1] - history_slope[-2]
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope, slope_lowest, accel, accel_lowest)
+                        else:
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0, slope_lowest, accel, accel_lowest)
+                            
+                        # If saccade......
                         if not classification:
-                            if abs(deltaEOG_v) < 30:
-                                 y_pred = 0
-                            else:
-                                y_pred = model.predict(deltaEOG_v.reshape((-1,1)))
 
-                            history_dY.append(y_pred)
+                            # Adjust this noise threshold below depending on how noisy the signal is. Noise can generate some deltaV which we don't want to account for. 
+                            if abs(deltaEOG_v) < 75:
+                                 deltaY = 0
+                            else:
+                                deltaY = model.predict(deltaEOG_v.reshape((-1,1)))
+
+                            # Keep track of deltaY_predictions. 
+                            history_dY.append(deltaY)
+                            
                             
                             if len(history_dY) > 1:
-                                deltaDeltaY = history_dY[-1] - history_dY[-2]
-                                print(deltaDeltaY, deltaEOG_v, slope)
-                                 # only updkcate history_rt with predictions if there is no blink or its been 10 samples since a blink
-                                update_cursor(-deltaDeltaY)
                                 
+                                # Identify where the predictions flip signs. When this occurs we want to stop predicting for a couple samples to make sure eye movements won't rebound. 
+                                if (history_dY[-1] * history_dY[-2]) < 0 and history_dY[-1] != 0:
+                                    print('transition')
+                                    history_dY[-1] = 0
+                                    deltaDeltaY = 0
+                                    cooldown = 20
+                                else:
+
+                                    # Calculate the change in predicted deltaY values to get the effective amount the cursor should move (remember that multiple windows of one eye movement can predict the same deltaY, but we only want to move once per eye movement)
+                                    deltaDeltaY = history_dY[-1] - history_dY[-2]
+
+                                print(deltaDeltaY, deltaEOG_v, slope)
+                                
+                                # Update the cursor with the effective delta (use negative sign because for the Y-axis, 0 is the top and max is at the bottom)
+                                update_cursor(-deltaDeltaY)
+
+                        # If blink......
                         else: 
-                            #Some event action here
+                            
+                            # Left-click the mouse
                             mouse.click((Button.left))
                             print('blink')
-                            after_blink = 20
-                            
 
-                        
- # pause predictions being appended to history_rt for 10 samples after a blink is detected
+                            # Start a cooldown on predictions
+                            cooldown = 30
 
                 readings = 0
                 plt.pause(0.01)
@@ -513,12 +543,7 @@ while True:
         except UnicodeDecodeError:
             pass
     if close_program:
-            #print(len(y_data_arr))
-            with open("rt.json", "w") as f:
-                    json.dump(rt.tolist(), f)
 
-            # with open("history_rt.json", "w") as f:
-            #         json.dump(history_rt, f)
             break
     
 
