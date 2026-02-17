@@ -1,3 +1,8 @@
+#NOTES FOR SPRING 2026: SOFTWARE WORKS, JUST NEED VERY CLEAN SIGNAL, CALIBRATION SLOPES ARE INCONSISTENT, ADD HORIZONTAL AXIS. 
+
+
+
+
 import sys
 import serial
 import matplotlib.pyplot as plt
@@ -16,7 +21,7 @@ from scipy.signal import savgol_filter
 import time
 
 # Set up the serial port and parameters
-serial_port = '/dev/cu.usbmodem11401'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem1101'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
@@ -135,7 +140,7 @@ def get_deltaY(points):
 def get_deltaEOG_train(y_data_arr):
     deltaEOG_v = np.array([])
     # Sliding window
-    window_size = 150
+    window_size = 75
     for entry in y_data_arr:
 
         entry = savgol_filter(entry, 31, 3)   
@@ -185,22 +190,23 @@ def train_model(deltaEOG_v, deltaY):
 
 # Set deltaV and slope thresholds for blinks
 def set_blink_threshold(blink_data):
+
     deltaEOG_blinks = np.array([])
-    slopes = np.array([])
-    accels = np.array([])
+    # slopes = np.array([])
+    # accels = np.array([])
 
     # Use sliding window to get the max deltaEOG, then return the min of those max deltaEOG's as our threshold.
-    window_size = 200
+    window_size = 100
     for entry in blink_data:
 
         entry = savgol_filter(entry, 31, 3)
-        v = savgol_filter(entry, 31, 3, deriv=1)
-        a = savgol_filter(entry, 31, 3, deriv=2)
+        # v = savgol_filter(entry, 31, 3, deriv=1)
+        # a = savgol_filter(entry, 31, 3, deriv=2)
 
         argmax = np.argmax(entry)
         entry = entry[:argmax]
-        v = v[:argmax]
-        a = a[:argmax]
+        # v = v[:argmax]
+        # a = a[:argmax]
 
         i = 0
         window_deltas_y = []
@@ -212,20 +218,21 @@ def set_blink_threshold(blink_data):
         max_window_bounds = (max_diff_loc, max_diff_loc + window_size)
 
         deltaEOG_blinks = np.append(deltaEOG_blinks, max(window_deltas_y, key=abs))
-        slopes = np.append(slopes, max(v[max_window_bounds[0] : max_window_bounds[1]]))
-        accels = np.append(accels, max(a[max_window_bounds[0] : max_window_bounds[1]]))
+        # slopes = np.append(slopes, max(v[max_window_bounds[0] : max_window_bounds[1]]))
+        # accels = np.append(accels, max(a[max_window_bounds[0] : max_window_bounds[1]]))
    
-    deltaEOG_blink_std = np.std(deltaEOG_blinks)
-    slope_std = np.std(slopes)
+    # deltaEOG_blink_std = np.std(deltaEOG_blinks)
+    # slope_std = np.std(slopes)
     deltaEOG_blink_lowest = np.min(deltaEOG_blinks)
-    slope_lowest = np.min(slopes) - slope_std
-    accel_lowest = np.mean(accels)
+    # slope_lowest = np.min(slopes) - slope_std
+    # accel_lowest = np.mean(accels)
 
-    return deltaEOG_blink_lowest, slope_lowest, accel_lowest
+    return deltaEOG_blink_lowest
+
 
 
 # Blink vs. Saccade classification based on changes in slope or deltaV thresholds
-def classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope, slope_lowest, accel, accel_lowest):
+def classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope):
     if deltaSlope > 3 or deltaEOG_v > deltaEOG_blink_lowest:
         blink = True
 
@@ -246,12 +253,12 @@ def classify_only_peak_threshold(deltaEOG_v, deltaEOG_blink_lowest):
 # Extract features on real-time data
 def get_deltaEOG_test(y_data):
     deltaEOG_v = np.array([])
-    # Sliding window
-    window_size = 150
+    # Sliding windowkc
+    window_size = 75
     i = 0
     window_deltas_y = []
     entry=list(y_data)
-    entry = entry - np.mean(entry[:10])
+    entry = entry - np.mean(entry[:10]) # baseline normalization
 
 
     if max(entry, key=abs) > entry[0]: #if positive saccade 
@@ -275,6 +282,10 @@ def get_deltaEOG_test(y_data):
         slope = max(v[max_window_bounds[0] : max_window_bounds[1]])
         accel = max(a[max_window_bounds[0] : max_window_bounds[1]])
     else:
+
+        #should be doing: 
+        #argmin = np.argmin(entry)
+        #entry = entry[:argmin]
         for i in range(len(entry) - window_size):
             # signal went up first, then down → negative saccade
             window_deltas_y.append(min(entry[i: i + window_size]) - max(entry[i:i+ window_size]))
@@ -322,7 +333,7 @@ def update_cursor(deltaY):
     with open('linear_model_coefficients.json') as f:
         model_coef = json.load(f)
 
-    SCALE = 1 / model_coef['slope']
+    SCALE = 1
 
     scaled_delta = deltaY * SCALE
 
@@ -355,7 +366,7 @@ while True:
             data = ser.readline().decode('utf-8').strip().split(',')[0]  # Read and decode data from serial
             value = int(data)
             if y_data:
-                value = value * a + (1 - a) * y_data[-1]
+                value = value * a + (1 - a) * y_data[-1] # ADD SMOOTHING ALGORITHMS HERE
             x_data.append(len(x_data))
             y_data.append(value)
 
@@ -383,16 +394,16 @@ while True:
 
                 # If calibration finished...
                 if n.poll() is not None: 
-                    plt.close(fig)
+                    # plt.close(fig)
                     print('Blink Calibration Complete, Setting Blink Thresholds')
 
                     with open('raw_blinks.json', "w") as f:
                         json.dump(blink_data_arr, f)
 
-                    deltaEOG_blink_lowest, slope_lowest, accel_lowest = set_blink_threshold(blink_data_arr)
+                    deltaEOG_blink_lowest = set_blink_threshold(blink_data_arr)
                     print('blink deltaEOG threshold' , deltaEOG_blink_lowest)
-                    print('blink slope threshold' , slope_lowest)
-                    print('blink accel threshold' , accel_lowest)
+                    # print('blink slope threshold' , slope_lowest)
+                    # print('blink accel threshold' , accel_lowest)
                     blink_calibrating = False
                     blink_calibrated = True
                     print(blink_calibrating)
@@ -469,7 +480,7 @@ while True:
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
 
                 # Update the plot 
-                update_plot()
+                # update_plot()k
 
                 if calibrated and blink_calibrated: # if calibration finished
 
@@ -490,9 +501,9 @@ while True:
 
                             # Calculate the change in slope between windows, use for blink vs. saccade classification
                             deltaSlope = history_slope[-1] - history_slope[-2]
-                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope, slope_lowest, accel, accel_lowest)
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope)
                         else:
-                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0, slope_lowest, accel, accel_lowest)
+                            classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0)
                             
                         # If saccade......
                         if not classification:

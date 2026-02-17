@@ -5,7 +5,7 @@ from pynput import keyboard
 from collections import deque
 
 # Set up the serial port and parameters
-serial_port = '/dev/cu.usbmodem101'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
+serial_port = '/dev/cu.usbmodem11101'  # Replace with your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux or 'COM3' on Windows)
 baud_rate = 230400
 ser = serial.Serial(serial_port, baud_rate)
 history = 500
