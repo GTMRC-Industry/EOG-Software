@@ -35,6 +35,10 @@ plt.ion()
 fig, ax = plt.subplots()
 x_data = deque(maxlen=history)
 y_data = deque(maxlen=history)
+
+rt = [] #define real time list that will populate with data
+
+
 y_pred_deque = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
 ax.set_xlim(0, history)
@@ -50,9 +54,16 @@ blink_data_arr = []
 history_dY = []
 history_dEOG = []
 history_slope = []
+history_last_val = []
 
 # Initialize cooldown variable used later in real-time prediction
 cooldown = 0
+
+
+#STATE MACHINE VARIABLES
+upper_thresh = 0
+lower_thresh = 0
+baseline_thresh = 0
 
 #Feature Extraction Setup
 global open_blink_calibration
@@ -376,6 +387,7 @@ while True:
                 value = value * a + (1 - a) * y_data[-1] # ADD SMOOTHING ALGORITHMS HERE
             x_data.append(len(x_data))
             y_data.append(value)
+            rt.append(value)
 
             # Blink calibration phase
             if open_blink_calibration and not blink_calibrating:
@@ -487,75 +499,82 @@ while True:
             if (readings > update_batch_size) and (not calibrating) and (not blink_calibrating):
 
                 # Update the plot 
-                # update_plot()k
-
+                # update_plot()
                 if calibrated and blink_calibrated: # if calibration finished
 
-                    # Perform feature extraction on incoming real-time data
-                    deltaEOG_v, slope, accel = get_deltaEOG_test(y_data)
+                                                    # # Perform feature extraction on incoming real-time data
+                                                    # deltaEOG_v, slope, accel = get_deltaEOG_test(y_data)
+
+                    ### ESTABLISH BASELINE
+                    #check if there is a flat trend
+                    if (abs(rt[-1] - rt[-2]) < baseline_thresh and abs(rt[-2] - rt[-3]) < baseline_thresh):
+                        baseline = np.mean(rt[-1], rt[-2], rt[-3])
+
+                    
 
 
-                    cooldown -= 1
+                    #see if that value between windows is flat
 
-                    # If no cooldown activated
-                    if cooldown < 0:
+
+
+
+
 
                         # Keep track of the incoming deltaVs and their respective slopes
-                        history_dEOG.append(deltaEOG_v)
-                        history_slope.append(slope)
+                    history_dEOG.append(deltaEOG_v)
+                    history_slope.append(slope)
 
-                        if len(history_slope) > 1:
+                    if len(history_slope) > 1:
 
-                            # Calculate the change in slope between windows, use for blink vs. saccade classification
-                            deltaSlope = history_slope[-1] - history_slope[-2]
-                            # classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope)
-                            classification = False
-                            
+                        # Calculate the change in slope between windows, use for blink vs. saccade classification
+                        deltaSlope = history_slope[-1] - history_slope[-2]
+                        classification = classify(deltaEOG_v, deltaEOG_blink_lowest, deltaSlope)
+                        
+                    else:
+                        classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0)
+                        
+                    # If saccade......
+                    if not classification:
+
+                        # Adjust this noise threshold below depending on how noisy the signal is. Noise can generate some deltaV which we don't want to account for. 
+                        if abs(deltaEOG_v) < 35:
+                                deltaY = 0
                         else:
-                            # classification = classify(deltaEOG_v, deltaEOG_blink_lowest, 0)
-                            classification = False
-                            
-                        # If saccade......
-                        if not classification:
+                            deltaY = model.predict(deltaEOG_v.reshape((-1,1)))
 
-                            # Adjust this noise threshold below depending on how noisy the signal is. Noise can generate some deltaV which we don't want to account for. 
-                            if abs(deltaEOG_v) < 35:
-                                 deltaY = 0
+                        # Keep track of deltaY_predictions. 
+                        history_dY.append(deltaY)
+                        
+                        
+                        if len(history_dEOG) > 1:
+                            
+                            # Identify where the predictions flip signs. When this occurs we want to stop predicting for a couple samples to make sure eye movements won't rebound. 
+                            if (history_dEOG[-1] * history_dEOG[-2]) < 0 and history_dEOG[-1] != 0:
+                                print('transition')
+                                history_dY[-1] = 0
+                                deltaDeltaY = 0
+                                tracking = False
+                                refract = True
                             else:
-                                deltaY = model.predict(deltaEOG_v.reshape((-1,1)))
 
-                            # Keep track of deltaY_predictions. 
-                            history_dY.append(deltaY)
+                                # Calculate the change in predicted deltaY values to get the effective amount the cursor should move (remember that multiple windows of one eye movement can predict the same deltaY, but we only want to move once per eye movement)
+                                deltaDeltaY = history_dY[-1] - history_dY[-2]
+
+                            if deltaDeltaY != 0:
+                                print(deltaDeltaY, deltaEOG_v, slope)
                             
-                            
-                            if len(history_dY) > 1:
-                                
-                                # Identify where the predictions flip signs. When this occurs we want to stop predicting for a couple samples to make sure eye movements won't rebound. 
-                                if (history_dY[-1] * history_dY[-2]) < 0 and history_dY[-1] != 0:
-                                    print('transition')
-                                    history_dY[-1] = 0
-                                    deltaDeltaY = 0
-                                    cooldown = 20
-                                else:
+                            # Update the cursor with the effective delta (use negative sign because for the Y-axis, 0 is the top and max is at the bottom)
+                            update_cursor(-deltaDeltaY)
 
-                                    # Calculate the change in predicted deltaY values to get the effective amount the cursor should move (remember that multiple windows of one eye movement can predict the same deltaY, but we only want to move once per eye movement)
-                                    deltaDeltaY = history_dY[-1] - history_dY[-2]
+                    # If blink......
+                    if classification:
+                        
+                        # Left-click the mouse
+                        mouse.click((Button.left))
+                        print('blink')
 
-                                if deltaDeltaY != 0:
-                                    print(deltaDeltaY, deltaEOG_v, slope)
-                                
-                                # Update the cursor with the effective delta (use negative sign because for the Y-axis, 0 is the top and max is at the bottom)
-                                update_cursor(-deltaDeltaY)
-
-                        # If blink......
-                        if classification:
-                            
-                            # Left-click the mouse
-                            mouse.click((Button.left))
-                            print('blink')
-
-                            # Start a cooldown on predictions
-                            cooldown = 30
+                        # Start a cooldown on predictions
+                
 
                 readings = 0
                 plt.pause(0.01)

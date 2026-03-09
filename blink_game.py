@@ -1,8 +1,7 @@
 import tkinter as tk
 
 # Initial countdown value
-count = 5
-rep = 0 
+count = 10
 
 
 
