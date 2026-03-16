@@ -2,7 +2,7 @@
 //THE OUTPUT IS THE DIGITIZED SIGNAL (0-1023; 10-BIT) AND THE TIME BETWEEN SAMPLES IN MICROSECONDS
 
 //Variable definitions
-const float target_adc_frequency_in_kHz = 0.1 // change to 120hz;
+const float target_adc_frequency_in_kHz = 1.2; // change to 120hz;
 const uint8_t analog_pin = 0;
 volatile uint16_t adc_now = 0;
 String serial_string = "";
