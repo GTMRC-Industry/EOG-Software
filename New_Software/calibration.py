@@ -229,7 +229,7 @@ def set_blink_threshold(blink_data):
     return deltaEOG_blink_lowest
 
 
-def classify_only_peak_threshold(deltaEOG_v, deltaEOG_blink_lowest):
+def classify(deltaEOG_v, deltaEOG_blink_lowest):
     if deltaEOG_v < deltaEOG_blink_lowest:
         blink = False
     else:
@@ -253,7 +253,7 @@ while True:
             if open_blink_calibration and not blink_calibrating:
 
                 print('Opening Blink Game')
-                n = subprocess.Popen(["python3", "blink_game.py"])
+                n = subprocess.Popen(["python3", "./Calibration_Games/blink_game.py"])
                 blink_calibrating = True
             if blink_calibrating:
 
@@ -290,7 +290,7 @@ while True:
             # Saccade calibration phase
             if open_eye_mvmt_calibration and not calibrating: # press c to open the calibration game
                 print('Opening Calibration Game')
-                p = subprocess.Popen(["python3", "updated_calibration_game.py"]) #run the calibration game
+                p = subprocess.Popen(["python3", "./Calibration_Games/eye_mvmt_calibration_game.py"]) #run the calibration game
                 calibrating = True
             
             if calibrating and d_count > 0:
@@ -335,8 +335,8 @@ while True:
 
 
                     #This filters out any blinks that may have occurred during calibration
-                    filtered_deltaEOG_v = deltaEOG_v[[not classify_only_peak_threshold(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
-                    deltaY = deltaY[[not classify_only_peak_threshold(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
+                    filtered_deltaEOG_v = deltaEOG_v[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # filter out blinks that occurred in the eye movement calibration
+                    deltaY = deltaY[[not classify(entry, deltaEOG_blink_lowest) for entry in deltaEOG_v]] # align points with the newly filtered out eye movements
                     print('new length of deltaY: ', len(deltaY))
 
 
