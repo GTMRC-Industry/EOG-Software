@@ -2,6 +2,7 @@ import sys
 import serial
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from pynput import keyboard
 from pynput.keyboard import Key, Controller
 
@@ -15,11 +16,6 @@ from sklearn.linear_model import LogisticRegression, LinearRegression, HuberRegr
 from scipy.signal import savgol_filter
 import time
 
-# Set up the serial port and parameters
-serial_port = '/dev/cu.usbmodem11301'  # Replace with your Arduino's serial port (e.g., '/dev/cu.usbmodem101' on Linux or 'COM3' on Windows)
-baud_rate = 230400
-ser = serial.Serial(serial_port, baud_rate)
-history = 500
 update_batch_size = 20
 update_cursor_batch_size = 0
 a = 0.05  # Exponential Smoothing Parameter
@@ -28,12 +24,8 @@ baseline = 1023 / 2
 # Plot Setup
 plt.ion()
 fig, ax = plt.subplots()
-x_data = deque(maxlen=history)
 y_data = []
-y_pred_deque = deque(maxlen=history)
 line, = ax.plot([], [], 'r-')
-ax.set_xlim(0, history)
-ax.set_ylim(0, 1000)
 
 # Initialize data stream lists
 y_data_list = []
@@ -125,11 +117,14 @@ def classify(deltaEOG_v, blink_thresh):
     return blink
 
 ###NEW ALGORITHM PARAMETERS###
+
+
 baseline = 0
-threshold = 100
-noise_threshold = 30
+threshold = 50
+noise_threshold = 10
 lower_bound = 0
 upper_bound = 0
+deltaEOG_v = 0
 
 mov_avg_pt = 10 #use a 10 point moving average (for noise handling)
 hist_mov_avg = [] #keep track of the moving average values so we can compare present vs past values
@@ -140,69 +135,65 @@ hist_mov_avg = [] #keep track of the moving average values so we can compare pre
 hit_max = False
 hit_min = False
 
-while True: 
-
-    if ser.in_waiting > 0:
-        try:
-            data = ser.readline().decode('utf-8').strip().split(',')[0]  # Read and decode data from serial
-            value = int(data)
-            if y_data:
-                value = value * a + (1 - a) * y_data[-1] # ADD SMOOTHING ALGORITHMS HERE
-            y_data.append(value)
-
-            if len(y_data) > 0 and len(y_data) % mov_avg_pt == 0: #Note that by using MOD there will be no overlap between the groups of averages. 
-                mov_avg = np.mean(y_data[-mov_avg_pt : -1])
-
-                hist_mov_avg.append(mov_avg)
 
 
-                if len(hist_mov_avg) > 1:
 
-                    if hist_mov_avg[-1] - hist_mov_avg[-2] < noise_threshold:
-                        baseline = hist_mov_avg[-1]
-                        lower_bound = baseline - threshold
-                        upper_bound = baseline + threshold
+s1 = pd.read_csv('./measurements/csv/s1.csv')
+timestep = np.mean(np.diff(s1['time']))
 
-                        hit_max = False
-                        hit_min = False
+def reconstruct(sim, timestep):
+    global baseline
+    global threshold
+    global upper_bound
+    global lower_bound
+    global noise_threshold
+    global deltaEOG_v
 
-                        print(baseline, lower_bound, upper_bound)
 
-                    elif hist_mov_avg[-1] > upper_bound and hist_mov_avg[-1] < hist_mov_avg[-2] and not hit_max:
-                        hit_max = True
-                        max_y = hist_mov_avg[-2]
-                        deltaEOG_v = max_y - baseline
-                        print(deltaEOG_v)
+    for i in range(sim.shape[0]):
+        y_data.append(sim['signal'][i])
+        time.sleep(timestep)
+        if len(y_data) > 0 and len(y_data) % mov_avg_pt == 0: #Note that by using MOD there will be no overlap between the groups of averages. 
+            mov_avg = np.mean(y_data[-mov_avg_pt : -1])
 
-                    elif hist_mov_avg[-1] < lower_bound and hist_mov_avg[-1] > hist_mov_avg[-2] and not hit_min:
-                        hit_min = True
-                        min_y = hist_mov_avg[-2]
-                        deltaEOG_v = min_y - baseline
-                        print(deltaEOG_v)
+            hist_mov_avg.append(mov_avg)
 
-                    
-                    classification = classify(deltaEOG_v, blink_thresh)
+            if len(hist_mov_avg) > 1:
 
-                    if classification: 
-                        mouse.click((Button.left))
-                        print('blink')
+                if abs(hist_mov_avg[-1] - hist_mov_avg[-2]) < noise_threshold:
+                    print(abs(hist_mov_avg[-1] - hist_mov_avg[-2]))
+                    baseline = hist_mov_avg[-1]
+                    lower_bound = baseline - threshold
+                    upper_bound = baseline + threshold
 
-                    elif not classification:
-                        deltaY = (model_slope * deltaEOG_v)
-                        update_cursor(deltaY)
+                    hit_max = False
+                    hit_min = False
 
-        except ValueError:
-            pass
-        except UnicodeDecodeError:
-            pass
-    if close_program:
+                    # print(baseline, lower_bound, upper_bound)
 
-            break
+                elif hist_mov_avg[-1] > upper_bound and hist_mov_avg[-1] < hist_mov_avg[-2] and not hit_max:
+                    hit_max = True
+                    max_y = hist_mov_avg[-2]
+                    deltaEOG_v = max_y - baseline
+                    print(deltaEOG_v)
+
+                elif hist_mov_avg[-1] < lower_bound and hist_mov_avg[-1] > hist_mov_avg[-2] and not hit_min:
+                    hit_min = True
+                    min_y = hist_mov_avg[-2]
+                    deltaEOG_v = min_y - baseline
+                    print(deltaEOG_v)
+
+                
+                classification = classify(deltaEOG_v, blink_thresh)
+
+                if classification: 
+                    mouse.click((Button.left))
+                    print('blink')
+
+                elif not classification:
+                    deltaY = (model_slope * deltaEOG_v)
+                    update_cursor(deltaY)
+
     
 
-    
-ser.close()
-
-##TODO:
-
-# Test in real-time with extensive calibration
+reconstruct(s1, timestep)
