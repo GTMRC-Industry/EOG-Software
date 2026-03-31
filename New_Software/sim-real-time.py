@@ -98,14 +98,14 @@ def update_cursor(deltaY):
 # Initialize boolean flags for calibration handling
 
 
-with open("model_coefficients.json") as f: # load the list of random points generated in calibration_game
+with open("./model_coefficients.json") as f: # load the list of random points generated in calibration_game
     model_coefficients = json.load(f)
 
 model_slope = model_coefficients['slope']
 model_intercept = model_coefficients['intercept']
 
 
-with open("blink_thresh.json") as f:
+with open("./blink_thresh.json") as f:
     blink_thresh = json.load(f)
 
 def classify(deltaEOG_v, blink_thresh):
@@ -138,8 +138,8 @@ hit_min = False
 
 
 
-s1 = pd.read_csv('./measurements/csv/s1.csv')
-timestep = np.mean(np.diff(s1['time']))
+s1 = pd.read_csv('./recordings/csv_outputs/UDB1.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+timestep = np.mean(np.diff(s1['timestamp'])) # time
 
 def reconstruct(sim, timestep):
     global baseline
@@ -151,7 +151,7 @@ def reconstruct(sim, timestep):
 
 
     for i in range(sim.shape[0]):
-        y_data.append(sim['signal'][i])
+        y_data.append(sim['data1'][i]) # signal
         time.sleep(timestep)
         if len(y_data) > 0 and len(y_data) % mov_avg_pt == 0: #Note that by using MOD there will be no overlap between the groups of averages. 
             mov_avg = np.mean(y_data[-mov_avg_pt : -1])
