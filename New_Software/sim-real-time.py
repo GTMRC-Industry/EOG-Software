@@ -119,17 +119,18 @@ def classify(deltaEOG_v, blink_thresh):
 ###NEW ALGORITHM PARAMETERS###
 
 
-baseline = 0
-threshold = 50
-noise_threshold = 10
+baseline = 500
+threshold = 100
+noise_threshold = 3
+
 lower_bound = 0
-upper_bound = 0
+upper_bound = 1000
 deltaEOG_v = 0
 
-mov_avg_pt = 10 #use a 10 point moving average (for noise handling)
+mov_avg_pt = 20 #use a 10 point moving average (for noise handling)
 hist_mov_avg = [] #keep track of the moving average values so we can compare present vs past values
 
-
+lookback = 5 #variable that says which moving average to compare your previous one to. must be at least 2
 
 
 hit_max = False
@@ -138,8 +139,12 @@ hit_min = False
 
 
 
-s1 = pd.read_csv('./recordings/csv_outputs/UDB1.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+s1 = pd.read_csv('./recordings/csv_outputs/UDB5.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+# s1 = s1.iloc[1499:].reset_index(drop=True)
+
+
 timestep = np.mean(np.diff(s1['timestamp'])) # time
+print(1/timestep) #should match sampling frequency (hz)
 
 def reconstruct(sim, timestep):
     global baseline
@@ -158,10 +163,10 @@ def reconstruct(sim, timestep):
 
             hist_mov_avg.append(mov_avg)
 
-            if len(hist_mov_avg) > 1:
+            if len(hist_mov_avg) > lookback:
 
-                if abs(hist_mov_avg[-1] - hist_mov_avg[-2]) < noise_threshold:
-                    print(abs(hist_mov_avg[-1] - hist_mov_avg[-2]))
+                if abs(hist_mov_avg[-1] - hist_mov_avg[-lookback]) < noise_threshold and hist_mov_avg[-1] > lower_bound and hist_mov_avg[-1] < upper_bound:
+                    # print(abs(hist_mov_avg[-1] - hist_mov_avg[-2]), lower_bound, upper_bound, hist_mov_avg[-1])
                     baseline = hist_mov_avg[-1]
                     lower_bound = baseline - threshold
                     upper_bound = baseline + threshold
@@ -171,28 +176,41 @@ def reconstruct(sim, timestep):
 
                     # print(baseline, lower_bound, upper_bound)
 
-                elif hist_mov_avg[-1] > upper_bound and hist_mov_avg[-1] < hist_mov_avg[-2] and not hit_max:
+                elif hist_mov_avg[-1] > upper_bound and hist_mov_avg[-1] < hist_mov_avg[-lookback] and not hit_max:
                     hit_max = True
-                    max_y = hist_mov_avg[-2]
+                    max_y = hist_mov_avg[-((lookback // 2) + 1)]
                     deltaEOG_v = max_y - baseline
-                    print(deltaEOG_v)
+                    print(f'FOUND MAX {deltaEOG_v}')
+                    print(len(y_data))
 
-                elif hist_mov_avg[-1] < lower_bound and hist_mov_avg[-1] > hist_mov_avg[-2] and not hit_min:
+                    classification = classify(deltaEOG_v, blink_thresh)
+
+                    if classification: 
+                        mouse.click((Button.left))
+                        print('blink')
+
+                    elif not classification:
+                        deltaY = (model_slope * deltaEOG_v)
+                        update_cursor(deltaY)
+
+                    ## MAYBE KEEP TRACKING THE MAX AFTER YOU EXIT THE UPPER BOUND AND THEN REPORT THE ACTUAL MAX ONCE YOU REENTER
+
+                elif hist_mov_avg[-1] < lower_bound and hist_mov_avg[-1] > hist_mov_avg[-lookback] and not hit_min:
+                    
                     hit_min = True
-                    min_y = hist_mov_avg[-2]
+                    min_y = hist_mov_avg[-((lookback // 2) + 1)]
                     deltaEOG_v = min_y - baseline
-                    print(deltaEOG_v)
+                    print(f'FOUND MIN {deltaEOG_v}')
+                    print(len(y_data))
 
-                
-                classification = classify(deltaEOG_v, blink_thresh)
-
-                if classification: 
-                    mouse.click((Button.left))
-                    print('blink')
-
-                elif not classification:
                     deltaY = (model_slope * deltaEOG_v)
                     update_cursor(deltaY)
+                # else:
+                #     print(f'lower_bound: {lower_bound}, value: {hist_mov_avg[-1]}')
+
+                
+
+               
 
     
 
