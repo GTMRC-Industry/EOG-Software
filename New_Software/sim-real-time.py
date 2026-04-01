@@ -208,10 +208,5 @@ def reconstruct(sim, timestep):
                 # else:
                 #     print(f'lower_bound: {lower_bound}, value: {hist_mov_avg[-1]}')
 
-                
-
-               
-
-    
 
 reconstruct(s1, timestep)
