@@ -127,7 +127,7 @@ lower_bound = 0
 upper_bound = 1000
 deltaEOG_v = 0
 
-mov_avg_pt = 20 #use a 10 point moving average (for noise handling)
+mov_avg_pt = 20 #use a 20 point moving average (for noise handling)
 hist_mov_avg = [] #keep track of the moving average values so we can compare present vs past values
 
 lookback = 5 #variable that says which moving average to compare your previous one to. must be at least 2
@@ -139,11 +139,13 @@ hit_min = False
 
 
 
-s1 = pd.read_csv('./recordings/csv_outputs/UDB5.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+s1 = pd.read_csv('./recordings/csv_outputs/up_down_blink_1_4-8.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
 # s1 = s1.iloc[1499:].reset_index(drop=True)
 
 
-timestep = np.mean(np.diff(s1['timestamp'])) # time
+timestep = ((s1['Matlab Timestamp'][(s1.shape[0]) - 1] - s1['Matlab Timestamp'][0]))/(s1.shape[0])# time
+print(timestep)
+
 print(1/timestep) #should match sampling frequency (hz)
 
 def reconstruct(sim, timestep):
@@ -156,7 +158,7 @@ def reconstruct(sim, timestep):
 
 
     for i in range(sim.shape[0]):
-        y_data.append(sim['data1'][i]) # signal
+        y_data.append(sim['Data 1'][i]) # signal
         time.sleep(timestep)
         if len(y_data) > 0 and len(y_data) % mov_avg_pt == 0: #Note that by using MOD there will be no overlap between the groups of averages. 
             mov_avg = np.mean(y_data[-mov_avg_pt : -1])
