@@ -135,15 +135,16 @@ lookback = 5 #variable that says which moving average to compare your previous o
 
 hit_max = False
 hit_min = False
+prev_extreme = None # None is start, True is max, False is min - keep track of the previous state (max or min) 
 
 
 
 
-s1 = pd.read_csv('./recordings/csv_outputs/up_down_blink_1_4-8.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+s1 = pd.read_csv('./recordings/csv_outputs/up_down_blink_3_4-8.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
 # s1 = s1.iloc[1499:].reset_index(drop=True)
 
 
-timestep = ((s1['Matlab Timestamp'][(s1.shape[0]) - 1] - s1['Matlab Timestamp'][0]))/(s1.shape[0])# time
+timestep = ((s1['Matlab Timestamp'][(s1.shape[0]) - 1] - s1['Matlab Timestamp'][0])) / (s1.shape[0])# time
 print(timestep)
 
 print(1/timestep) #should match sampling frequency (hz)
@@ -167,48 +168,61 @@ def reconstruct(sim, timestep):
 
             if len(hist_mov_avg) > lookback:
 
-                if abs(hist_mov_avg[-1] - hist_mov_avg[-lookback]) < noise_threshold and hist_mov_avg[-1] > lower_bound and hist_mov_avg[-1] < upper_bound:
+                if  hist_mov_avg[-1] > lower_bound and hist_mov_avg[-1] < upper_bound:
                     # print(abs(hist_mov_avg[-1] - hist_mov_avg[-2]), lower_bound, upper_bound, hist_mov_avg[-1])
-                    baseline = hist_mov_avg[-1]
-                    lower_bound = baseline - threshold
-                    upper_bound = baseline + threshold
+                    if abs(hist_mov_avg[-1] - hist_mov_avg[-lookback]) < noise_threshold:
+                        baseline = hist_mov_avg[-1]
+                        lower_bound = baseline - threshold
+                        upper_bound = baseline + threshold
+                        prev_extreme = None
+                        print(f'prev extreme: {prev_extreme}, {len(y_data)}')
 
                     hit_max = False
                     hit_min = False
 
-                    # print(baseline, lower_bound, upper_bound)
+                    # print(baseline, lower_bound, upper_bound, len(y_data))
 
                 elif hist_mov_avg[-1] > upper_bound and hist_mov_avg[-1] < hist_mov_avg[-lookback] and not hit_max:
+
+
+                    if (prev_extreme is None or prev_extreme == True):
+                        max_y = hist_mov_avg[-((lookback // 2) + 1)]
+                        deltaEOG_v = max_y - baseline
+                        print(f'FOUND MAX {deltaEOG_v}')
+                        print(len(y_data))
+
+                        classification = classify(deltaEOG_v, blink_thresh)
+
+                        if classification: 
+                            mouse.click((Button.left))
+                            print('blink')
+
+                        elif not classification:
+                            deltaY = (model_slope * deltaEOG_v)
+                            update_cursor(deltaY)
+                    
                     hit_max = True
-                    max_y = hist_mov_avg[-((lookback // 2) + 1)]
-                    deltaEOG_v = max_y - baseline
-                    print(f'FOUND MAX {deltaEOG_v}')
-                    print(len(y_data))
-
-                    classification = classify(deltaEOG_v, blink_thresh)
-
-                    if classification: 
-                        mouse.click((Button.left))
-                        print('blink')
-
-                    elif not classification:
-                        deltaY = (model_slope * deltaEOG_v)
-                        update_cursor(deltaY)
+                    hit_min = False
+                    prev_extreme = True
+                    print(f'prev extreme: {prev_extreme}, {len(y_data)}')
 
                     ## MAYBE KEEP TRACKING THE MAX AFTER YOU EXIT THE UPPER BOUND AND THEN REPORT THE ACTUAL MAX ONCE YOU REENTER
 
                 elif hist_mov_avg[-1] < lower_bound and hist_mov_avg[-1] > hist_mov_avg[-lookback] and not hit_min:
+
+                    if (prev_extreme is None or prev_extreme == False):
+                        min_y = hist_mov_avg[-((lookback // 2) + 1)]
+                        deltaEOG_v = min_y - baseline
+                        print(f'FOUND MIN {deltaEOG_v}')
+                        print(len(y_data))
+
+                        deltaY = (model_slope * deltaEOG_v)
+                        update_cursor(deltaY)
                     
                     hit_min = True
-                    min_y = hist_mov_avg[-((lookback // 2) + 1)]
-                    deltaEOG_v = min_y - baseline
-                    print(f'FOUND MIN {deltaEOG_v}')
-                    print(len(y_data))
-
-                    deltaY = (model_slope * deltaEOG_v)
-                    update_cursor(deltaY)
-                # else:
-                #     print(f'lower_bound: {lower_bound}, value: {hist_mov_avg[-1]}')
+                    hit_max = False
+                    prev_extreme = False
+                    print(f'prev extreme: {prev_extreme}, {len(y_data)}')
 
 
 reconstruct(s1, timestep)
