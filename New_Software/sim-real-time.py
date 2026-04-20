@@ -136,11 +136,13 @@ lookback = 5 #variable that says which moving average to compare your previous o
 hit_max = False
 hit_min = False
 prev_extreme = None # None is start, True is max, False is min - keep track of the previous state (max or min) 
+# Keep track of every max or min, but only calculate and report deltaV when:
+                # if detected a max, calculate and report deltaV when the previous extreme was None (baseline region) or another max
+                # if detected a min, likewise, calculate and report deltaV when the previous extreme was None (baseline region) or another min
 
 
 
-
-s1 = pd.read_csv('./recordings/csv_outputs/up_down_blink_3_4-8.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
+s1 = pd.read_csv('./recordings/csv_outputs/up_down_blink_1_4-8.csv') # s1 = pd.read_csv('./measurements/csv/s1.csv')
 # s1 = s1.iloc[1499:].reset_index(drop=True)
 
 
@@ -174,7 +176,7 @@ def reconstruct(sim, timestep):
                         baseline = hist_mov_avg[-1]
                         lower_bound = baseline - threshold
                         upper_bound = baseline + threshold
-                        prev_extreme = None
+                        prev_extreme = None # Reset previous extreme state
                         print(f'prev extreme: {prev_extreme}, {len(y_data)}')
 
                     hit_max = False
