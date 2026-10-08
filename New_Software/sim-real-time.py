@@ -103,6 +103,8 @@ with open("./model_coefficients.json") as f: # load the list of random points ge
 
 model_slope = model_coefficients['slope']
 model_intercept = model_coefficients['intercept']
+dist = model_coefficients['intercept']
+setdist = 60; #setting distance from the screen 
 
 
 with open("./blink_thresh.json") as f:
@@ -200,7 +202,7 @@ def reconstruct(sim, timestep):
                             print('blink')
 
                         elif not classification:
-                            deltaY = (model_slope * deltaEOG_v)
+                            deltaY = (model_slope * deltaEOG_v) * (setdist / dist); 
                             update_cursor(deltaY)
                     
                     hit_max = True

@@ -88,8 +88,9 @@ print(cursor_x, cursor_y)
 mouse.position = (cursor_x, cursor_y)
 
 # Update the cursors position given a change in Y
-def update_cursor(deltaY):
+def update_cursor(deltaY, setdist, dist):
 
+    deltaY = deltaY * (setdist / dist)
     # Set the max and min bound from the edges of the screen
     bound = 20 
 
