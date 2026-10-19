@@ -181,12 +181,12 @@ def filter_data(deltaEOG_v, deltaY):
 
 
 # Fit the linear regression model and save the slope and intercept
-def train_model(deltaEOG_v, deltaY):
-    model = LinearRegression()
+def train_model(deltaEOG_v, deltaY, dist): #distance from screen in cm 
+    model = LinearRegression()  
     model.fit(deltaEOG_v.reshape(-1, 1), deltaY)
     # Save the trained model coefficients for later use
     with open("model_coefficients.json", "w") as f:
-        json.dump({"slope": model.coef_[0], "intercept": model.intercept_}, f)
+        json.dump({"slope": model.coef_[0], "intercept": model.intercept_, "distance": dist}, f) 
     print("Model trained and coefficients saved.")
     return model
 
